@@ -1,0 +1,3 @@
+
+[dashboard]
+Flask<4.0,>=3.1

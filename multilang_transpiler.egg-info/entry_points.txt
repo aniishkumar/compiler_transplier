@@ -1,0 +1,3 @@
+[console_scripts]
+multilang = multilang_transpiler.project_cli:main
+multilang-transpiler = multilang_transpiler.cli:main

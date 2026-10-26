@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7fb">
+  <title>MultiLang Transpiler</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="MultiLang Transpiler home"><span class="brand-mark" aria-hidden="true">&lt;/&gt;</span><span><strong>MultiLang Transpiler</strong><small>Multi-Language Source-to-Source Compiler</small></span></a>
+    <div class="header-meta"><span class="languages"><span>C</span><i></i><span>Python</span><i></i><span>JavaScript</span></span><span id="backend-status" class="status-pill"><b></b><span>Checking backend</span></span></div>
+  </header>
+
+  <main class="page-shell">
+    <section class="intro-row">
+      <div><p class="eyebrow">COMPILER DESIGN WORKBENCH</p><h1>MultiLang Transpiler</h1><p class="intro-copy">Translate programs across C, Python and JavaScript using a shared intermediate representation.</p></div>
+      <button id="run-matrix" class="button secondary" type="button"><span aria-hidden="true">▦</span> Run 3 × 3 checks</button>
+    </section>
+
+    <section class="workspace" aria-label="Transpiler workspace">
+      <div class="workspace-toolbar">
+        <div class="direction-controls">
+          <label class="select-label">Source<select id="source-language" aria-label="Source language"><option value="c">C</option><option value="python" selected>Python</option><option value="javascript">JavaScript</option></select></label>
+          <button id="swap-languages" class="icon-button" type="button" title="Swap source and target languages" aria-label="Swap languages">⇄</button>
+          <label class="select-label">Target<select id="target-language" aria-label="Target language"><option value="c">C</option><option value="python">Python</option><option value="javascript" selected>JavaScript</option></select></label>
+        </div>
+        <div class="toolbar-examples"><label class="sr-only" for="example-select">Sample program</label><select id="example-select" class="compact-select"><option value="">Load an example…</option></select><button id="load-example" class="button secondary load-button" type="button">Load example</button></div>
+        <div class="toolbar-actions"><button id="transpile" class="button primary" type="button"><span class="play-icon">▶</span> Transpile Code</button></div>
+      </div>
+
+      <div class="editor-grid">
+        <section class="editor-panel" aria-labelledby="source-heading">
+          <div class="panel-heading"><div class="panel-title"><span class="panel-kicker">SOURCE CODE</span><h2 id="source-heading">Source code</h2></div><div class="panel-tools"><span id="source-mode" class="language-chip">Python</span><button id="clear-source" class="text-button" type="button">Clear</button></div></div>
+          <div class="editor-wrap" id="source-editor"><div class="line-gutter" aria-hidden="true"></div><pre class="highlight-layer" aria-hidden="true"><code></code></pre><textarea id="source-code" aria-label="Source code editor" autocomplete="off" autocapitalize="off" spellcheck="false" wrap="off">count = 2
+print(count + 3)</textarea></div>
+          <div class="editor-footer"><span id="source-count">2 lines · 26 characters</span><span>Editable source</span></div>
+        </section>
+        <section class="editor-panel output-editor" aria-labelledby="output-heading">
+          <div class="panel-heading"><div class="panel-title"><span class="panel-kicker">GENERATED CODE</span><h2 id="output-heading">Target program</h2></div><div class="panel-tools"><span id="target-mode" class="language-chip">JavaScript</span><button id="copy-code" class="text-button" type="button" disabled>Copy</button><button id="download-code" class="text-button" type="button" disabled>Download</button><button id="clear-output" class="text-button" type="button">Clear</button></div></div>
+          <div class="editor-wrap" id="output-editor"><div class="line-gutter" aria-hidden="true"></div><pre class="highlight-layer" aria-hidden="true"><code></code></pre><textarea id="generated-code" aria-label="Generated target code" autocomplete="off" autocapitalize="off" spellcheck="false" wrap="off" readonly placeholder="Generated code will appear here."></textarea></div>
+          <div class="editor-footer"><span id="output-count">Ready to translate</span><span>Generated output</span></div>
+        </section>
+      </div>
+      <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    </section>
+
+    <section class="pipeline-section" aria-labelledby="pipeline-heading">
+      <div class="section-heading"><div><p class="eyebrow">TRACE THE COMPILER</p><h2 id="pipeline-heading">Compiler pipeline</h2></div><span id="pipeline-summary" class="muted-label">Run a conversion to inspect the phases</span></div>
+      <div id="pipeline" class="pipeline-list" aria-label="Compiler phases"></div>
+      <div class="phase-detail"><div class="phase-detail-head"><div><span class="panel-kicker">PHASE INSPECTOR</span><h3 id="phase-title">Select a phase</h3><p id="phase-description" class="phase-description">Choose a phase to learn its purpose and inspect its result.</p></div><span id="phase-status" class="phase-badge neutral">Not Run</span></div><pre id="phase-output" class="data-view phase-output" aria-live="polite">Phase outputs will be available after a conversion.</pre></div>
+    </section>
+
+    <footer class="page-footer"><span>MultiLang Transpiler <span class="footer-dot">·</span> educational shared-subset compiler</span><span>Source programs are translated and syntax-checked, never executed by the dashboard.</span></footer>
+  </main>
+  <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</body>
+</html>

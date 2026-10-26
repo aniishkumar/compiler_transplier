@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multilang-transpiler"
+version = "1.0.0"
+description = "Educational source-to-source compiler for a documented C/Python/JavaScript subset"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dashboard = ["Flask>=3.1,<4.0"]
+
+[project.scripts]
+multilang = "multilang_transpiler.project_cli:main"
+multilang-transpiler = "multilang_transpiler.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+webapp = ["templates/*.html", "static/css/*.css", "static/js/*.js"]

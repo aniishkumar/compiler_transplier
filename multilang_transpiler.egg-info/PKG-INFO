@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: multilang-transpiler
+Version: 1.0.0
+Summary: Educational source-to-source compiler for a documented C/Python/JavaScript subset
+Requires-Python: >=3.10
+Provides-Extra: dashboard
+Requires-Dist: Flask<4.0,>=3.1; extra == "dashboard"
