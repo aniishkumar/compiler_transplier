@@ -1,6 +1,6 @@
 # Cross-language conversion matrix report
 
-Generated: 2026-10-25 18:14 UTC
+Generated: 2026-10-27 15:32 UTC
 
 This report was produced by `python tools/build_matrix_report.py`. It parses, analyzes, lowers through the shared IR, generates each target, syntax-checks it, and runs only the committed regression programs in temporary directories.
 
@@ -8,15 +8,15 @@ This report was produced by `python tools/build_matrix_report.py`. It parses, an
 
 | Source | Target | Test program | Parse | IR lowering | Code generation | Syntax validation | Runtime / compilation | Output equivalent | Status |
 |---|---|---|---|---|---|---|---|---|---|
-| c | c | Regression (c) | pass | pass | pass | passed (cc) | source passed; target passed | yes | **PASS** |
+| c | c | Regression (c) | pass | pass | pass | passed (gcc.EXE) | source passed; target passed | yes | **PASS** |
 | c | python | Regression (c) | pass | pass | pass | passed (Python AST parser) | source passed; target passed | yes | **PASS** |
-| c | javascript | Regression (c) | pass | pass | pass | passed (node) | source passed; target passed | yes | **PASS** |
-| python | c | Regression (python) | pass | pass | pass | passed (cc) | source passed; target passed | yes | **PASS** |
+| c | javascript | Regression (c) | pass | pass | pass | passed (node.EXE) | source passed; target passed | yes | **PASS** |
+| python | c | Regression (python) | pass | pass | pass | passed (gcc.EXE) | source passed; target passed | yes | **PASS** |
 | python | python | Regression (python) | pass | pass | pass | passed (Python AST parser) | source passed; target passed | yes | **PASS** |
-| python | javascript | Regression (python) | pass | pass | pass | passed (node) | source passed; target passed | yes | **PASS** |
-| javascript | c | Regression (javascript) | pass | pass | pass | passed (cc) | source passed; target passed | yes | **PASS** |
+| python | javascript | Regression (python) | pass | pass | pass | passed (node.EXE) | source passed; target passed | yes | **PASS** |
+| javascript | c | Regression (javascript) | pass | pass | pass | passed (gcc.EXE) | source passed; target passed | yes | **PASS** |
 | javascript | python | Regression (javascript) | pass | pass | pass | passed (Python AST parser) | source passed; target passed | yes | **PASS** |
-| javascript | javascript | Regression (javascript) | pass | pass | pass | passed (node) | source passed; target passed | yes | **PASS** |
+| javascript | javascript | Regression (javascript) | pass | pass | pass | passed (node.EXE) | source passed; target passed | yes | **PASS** |
 
 ## Captured runtime evidence
 
