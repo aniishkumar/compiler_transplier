@@ -416,6 +416,15 @@ class Generator:
         if stmt.kind == 'return' and stmt.exprs: return True
         return any(Generator._contains_value_return(child) for child in stmt.body + stmt.otherwise)
 
+    @staticmethod
+    def _contains_call(stmt, func_name):
+        if not hasattr(stmt, 'kind'): return False
+        if stmt.kind == 'call' and stmt.value == func_name: return True
+        found = any(Generator._contains_call(b, func_name) for b in getattr(stmt, 'body', []))
+        if found: return True
+        found = any(Generator._contains_call(o, func_name) for o in getattr(stmt, 'otherwise', []))
+        return found
+
     def _c_type(self, typ, line, name):
         if not typ:
             raise CompileError(f"cannot safely infer a C type for {name!r}; initialize it with an integer, decimal, string, or Boolean in the supported subset", line, 'generation')
@@ -740,9 +749,15 @@ class Generator:
         js_args = []
         for spec, arg in zip(specs, args):
             value = self.expr(arg)
-            if spec[-1] == 'c' and self._expr_type(arg, self.statement_envs.get(id(s), self.global_env)) == 'int': value = f'String.fromCharCode({value})'
+            if spec[-1] == 'c' and self._expr_type(arg, self.statement_envs.get(id(s), self.global_env)) == 'int':
+                value = f'String.fromCharCode({value})'
+            elif spec[-1] == 'f' and '.' in spec:
+                m = re.search(r'\.(\d+)', spec)
+                prec = m.group(1) if m else '2'
+                value = f"Number({value}).toFixed({prec})"
             js_args.append(value)
         js_raw = re.sub(r'%(?:[-+0 #]*\d*(?:\.\d+)?)c', '%s', js_raw)
+        js_raw = re.sub(r'%(?:[-+0 #]*\d*(?:\.\d+)?)f', '%s', js_raw)
         if js_raw.endswith('\n'):
             js_raw = js_raw[:-1]
             return f'console.log({json.dumps(js_raw, ensure_ascii=False)}' + (', ' + ', '.join(js_args) if js_args else '') + ')'
@@ -1362,7 +1377,29 @@ class Generator:
             if prefix_lines:
                 prefix_lines.append('')
         elif self.lang == 'javascript':
-            pass
+            has_scanf = any(self._contains_call(s, 'scanf') for s in p.body)
+            if has_scanf:
+                prefix_lines.append(
+'''const fs = require('fs');
+let _inputBuf = '';
+function prompt() {
+    while (true) {
+        const match = _inputBuf.match(/\\S+/);
+        if (match) {
+            const start = _inputBuf.indexOf(match[0]);
+            const token = match[0];
+            _inputBuf = _inputBuf.slice(start + token.length);
+            return token;
+        }
+        const buf = Buffer.alloc(1024);
+        let n = 0;
+        try { n = fs.readSync(0, buf, 0, 1024, null); } catch (e) { break; }
+        if (n === 0) break;
+        _inputBuf += buf.toString('utf-8', 0, n);
+    }
+    return '';
+}'''
+                )
 
         self.lines = list(prefix_lines)
         for stmt in p.body:
