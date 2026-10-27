@@ -97,6 +97,8 @@ class Generator:
                 return 'int'
             return env.get(e.value)
         if e.kind == 'construct': return e.value
+        if e.kind == 'type': return e.value
+        if e.kind == 'cast': return e.value
         if e.kind == 'member':
             target_node = e.children[0]
             target_type = None
@@ -128,7 +130,10 @@ class Generator:
             return sub[:-1] if sub and sub.endswith('*') else 'int'
         if e.kind == 'index':
             array_type = env.get(e.value) if isinstance(e.value, str) else self._expr_type(e.value, env)
-            return array_type[:-2] if array_type and array_type.endswith('[]') else None
+            if array_type:
+                if array_type.endswith('[]'): return array_type[:-2]
+                if array_type.endswith('*'): return array_type[:-1]
+            return None
         if e.kind == 'array':
             item_types = {self._expr_type(child, env) for child in e.children}
             return 'int[]' if not item_types or item_types <= {'int'} else None
@@ -142,9 +147,13 @@ class Generator:
             if e.value == '+' and left == right == 'string': return 'string_concat'
             if left in ('int', 'double') and right in ('int', 'double'):
                 return 'double' if 'double' in (left, right) or e.value == '/' else 'int'
+            if e.value in ('+', '-') and left and ('*' in left or left.endswith('*')):
+                return left
             return None
         if e.kind in ('call', 'method_call'):
             func_name = e.value
+            if func_name == 'sizeof':
+                return 'int'
             if func_name in ('sqrt', 'pow', 'sin', 'cos', 'tan', 'floor', 'ceil'):
                 return 'double'
             if func_name == 'abs':
@@ -437,6 +446,8 @@ class Generator:
     def _is_pointer(self, expr_node):
         if not hasattr(expr_node, 'kind'): return False
         if expr_node.kind == 'address_of': return True
+        if expr_node.kind == 'cast' and '*' in (expr_node.value or ''): return True
+        if expr_node.kind == 'binary' and expr_node.value == '+': return self._is_pointer(expr_node.children[0])
         if expr_node.kind == 'name':
             if expr_node.value in self.ref_params: return True
             env = getattr(self, '_active_env', {})
@@ -493,11 +504,18 @@ class Generator:
                 return target_node.value
             if self.lang == 'c' and member == 'value' and target_node.kind == 'name' and target_node.value in self.ref_params:
                 return f"(*{target_node.value})"
+            if self.lang != 'c' and target_node.kind == 'binary' and target_node.value == '+':
+                ptr_expr = self.expr(target_node.children[0])
+                idx_expr = self.expr(target_node.children[1])
+                return f"{ptr_expr}[{idx_expr}].{member}"
             target = self.expr(target_node)
             if self.lang == 'c':
                 sep = '->' if (self._is_pointer(target_node) or (target_node.kind == 'name' and target_node.value in ('s', 'self', 'p', 'this'))) else '.'
                 return f"{target}{sep}{member}"
             return f"{target}.{member}"
+        if e.kind == 'type':
+            if self.lang == 'c': return e.value
+            return e.value.replace('struct ', '').rstrip('*').strip()
         if e.kind == 'method_call':
             target_node = e.children[0]
             method = e.value
@@ -582,6 +600,86 @@ class Generator:
             if e.value == 'abs':
                 if self.lang == 'javascript': return f"Math.abs({', '.join(self.expr(x) for x in e.children)})"
                 return f"abs({', '.join(self.expr(x) for x in e.children)})"
+            if e.value == 'malloc':
+                if self.lang == 'python':
+                    elem_type = None
+                    count_node = None
+                    arg = e.children[0]
+                    if arg.kind == 'binary' and arg.value == '*':
+                        for child in arg.children:
+                            if child.kind == 'call' and child.value == 'sizeof':
+                                sizeof_arg = child.children[0]
+                                elem_type = (sizeof_arg.value or '').replace('struct ', '').rstrip('*').strip()
+                            else:
+                                count_node = child
+                    elif arg.kind == 'call' and arg.value == 'sizeof':
+                        sizeof_arg = arg.children[0]
+                        elem_type = (sizeof_arg.value or '').replace('struct ', '').rstrip('*').strip()
+                        count_node = Expr('literal', '1')
+                    if elem_type and elem_type in self.structs:
+                        count_str = self.expr(count_node) if count_node else '1'
+                        return f"[{elem_type}() for _ in range({count_str})]"
+                    elif count_node:
+                        return f"[0 for _ in range({self.expr(count_node)})]"
+                    return "[]"
+                elif self.lang == 'javascript':
+                    elem_type = None
+                    count_node = None
+                    arg = e.children[0]
+                    if arg.kind == 'binary' and arg.value == '*':
+                        for child in arg.children:
+                            if child.kind == 'call' and child.value == 'sizeof':
+                                sizeof_arg = child.children[0]
+                                elem_type = (sizeof_arg.value or '').replace('struct ', '').rstrip('*').strip()
+                            else:
+                                count_node = child
+                    elif arg.kind == 'call' and arg.value == 'sizeof':
+                        sizeof_arg = arg.children[0]
+                        elem_type = (sizeof_arg.value or '').replace('struct ', '').rstrip('*').strip()
+                        count_node = Expr('literal', '1')
+                    if elem_type and elem_type in self.structs:
+                        count_str = self.expr(count_node) if count_node else '1'
+                        return f"Array.from({{ length: {count_str} }}, () => new {elem_type}())"
+                    elif count_node:
+                        return f"new Array({self.expr(count_node)}).fill(0)"
+                    return "[]"
+            if e.value == 'realloc':
+                if self.lang == 'python':
+                    ptr_str = self.expr(e.children[0])
+                    size_arg = e.children[1]
+                    elem_type = None
+                    count_node = None
+                    if size_arg.kind == 'binary' and size_arg.value == '*':
+                        for child in size_arg.children:
+                            if child.kind == 'call' and child.value == 'sizeof':
+                                sizeof_arg = child.children[0]
+                                elem_type = (sizeof_arg.value or '').replace('struct ', '').rstrip('*').strip()
+                            else:
+                                count_node = child
+                    count_str = self.expr(count_node) if count_node else '0'
+                    if elem_type and elem_type in self.structs:
+                        return f"({ptr_str} + [{elem_type}() for _ in range(max(0, ({count_str}) - len({ptr_str})))])"
+                    return f"({ptr_str} + [0 for _ in range(max(0, ({count_str}) - len({ptr_str})))])"
+                elif self.lang == 'javascript':
+                    ptr_str = self.expr(e.children[0])
+                    size_arg = e.children[1]
+                    elem_type = None
+                    count_node = None
+                    if size_arg.kind == 'binary' and size_arg.value == '*':
+                        for child in size_arg.children:
+                            if child.kind == 'call' and child.value == 'sizeof':
+                                sizeof_arg = child.children[0]
+                                elem_type = (sizeof_arg.value or '').replace('struct ', '').rstrip('*').strip()
+                            else:
+                                count_node = child
+                    count_str = self.expr(count_node) if count_node else '0'
+                    if elem_type and elem_type in self.structs:
+                        return f"{ptr_str}.concat(Array.from({{ length: Math.max(0, ({count_str}) - {ptr_str}.length) }}, () => new {elem_type}()))"
+                    return f"{ptr_str}.concat(new Array(Math.max(0, ({count_str}) - {ptr_str}.length)).fill(0))"
+            if e.value == 'sizeof':
+                if self.lang == 'c':
+                    return f"sizeof({self.expr(e.children[0])})"
+                return '1'
             call_name = self.function_name_map.get(e.value, e.value)
             # When calling a function in C with a pointer parameter where argument is in ref_vars:
             old_in_call = getattr(self, '_in_call_arg', False)
@@ -613,7 +711,7 @@ class Generator:
             if specifier not in 'disfc':
                 raise CompileError(f'printf conversion %{specifier} is unsupported; use %d, %i, %f, %s, or %c', line, 'generation')
             full = raw[start:index]
-            if len(full) > 2:
+            if len(full) > 2 and not re.match(r'^%[-+0 #]*\d*(?:\.\d+)?[disfc]$', full):
                 raise CompileError('printf flags and field widths are outside the portable subset', line, 'generation')
             specs.append(full)
         if len(specs) != len(args):
@@ -622,7 +720,7 @@ class Generator:
         for spec, arg in zip(specs, args):
             typ = self._expr_type(arg, env)
             code = spec[-1]
-            valid = (code in 'di' and typ in ('int', None)) or (code == 'f' and typ in ('int', 'double', None)) or (code == 's' and typ in ('string', 'char', None)) or (code == 'c' and typ in ('char', 'int', None))
+            valid = (code in 'di' and typ in ('int', None)) or (code == 'f' and typ in ('int', 'double', 'float', None)) or (code == 's' and typ in ('string', 'char', None)) or (code == 'c' and typ in ('char', 'int', None))
             if typ and not valid and typ not in self.structs:
                 raise CompileError(f'printf {spec!r} does not match the inferred {typ} argument type', arg.line, 'semantic')
         return raw, specs
@@ -807,7 +905,11 @@ class Generator:
                     self.emit(f'class {name}{base_str}:')
                     self.level += 1
                     field_names = [f.value for f in fields]
-                    init_args = ['self'] + field_names
+                    init_args = ['self']
+                    for f in fields:
+                        t = f.declared_type or ''
+                        default_val = '0' if 'int' in t else ('0.0' if 'float' in t or 'double' in t else ('""' if 'char' in t or 'str' in t else 'None'))
+                        init_args.append(f"{f.value}={default_val}")
                     self.emit(f"def __init__({', '.join(init_args)}):")
                     self.level += 1
                     base_name = getattr(s, 'declared_type', None)
@@ -836,7 +938,12 @@ class Generator:
                 self.emit(f'class {name}{base_str} {{')
                 self.level += 1
                 field_names = [f.value for f in fields]
-                self.emit(f"constructor({', '.join(field_names)}) {{")
+                init_args = []
+                for f in fields:
+                    t = f.declared_type or ''
+                    default_val = '0' if 'int' in t else ('0.0' if 'float' in t or 'double' in t else ('""' if 'char' in t or 'str' in t else 'null'))
+                    init_args.append(f"{f.value} = {default_val}")
+                self.emit(f"constructor({', '.join(init_args)}) {{")
                 self.level += 1
                 base_name = getattr(s, 'declared_type', None)
                 if base_name and base_name in self.structs:
@@ -869,9 +976,19 @@ class Generator:
                 sep = '->' if (self._is_pointer(target_node) or (target_node.kind == 'name' and target_node.value in ('s', 'self', 'p', 'this'))) else '.'
                 self.emit(f"{self.expr(target_node)}{sep}{member} {op} {val};")
             elif L == 'python':
-                self.emit(f"{self.expr(target_node)}.{member} {op} {val}")
+                if target_node.kind == 'binary' and target_node.value == '+':
+                    ptr_expr = self.expr(target_node.children[0])
+                    idx_expr = self.expr(target_node.children[1])
+                    self.emit(f"{ptr_expr}[{idx_expr}].{member} {op} {val}")
+                else:
+                    self.emit(f"{self.expr(target_node)}.{member} {op} {val}")
             else:
-                self.emit(f"{self.expr(target_node)}.{member} {op} {val};")
+                if target_node.kind == 'binary' and target_node.value == '+':
+                    ptr_expr = self.expr(target_node.children[0])
+                    idx_expr = self.expr(target_node.children[1])
+                    self.emit(f"{ptr_expr}[{idx_expr}].{member} {op} {val};")
+                else:
+                    self.emit(f"{self.expr(target_node)}.{member} {op} {val};")
             return
 
         if s.kind == 'deref_assign':
@@ -961,13 +1078,22 @@ class Generator:
                     ptr_star = ' *' if is_ptr else ' '
                     self.emit(f"{qualifier}{struct_name}{ptr_star}{s.value}{val};")
                 elif L == 'python':
-                    val = f' = {self.expr(s.exprs[0])}' if s.exprs else f' = {struct_name}()'
+                    if is_ptr:
+                        val = f' = {self.expr(s.exprs[0])}' if s.exprs else ' = None'
+                    else:
+                        val = f' = {self.expr(s.exprs[0])}' if s.exprs else f' = {struct_name}()'
                     self.emit(f"{s.value}{val}")
                 else:
-                    val = f' = {self.expr(s.exprs[0])}' if s.exprs else f' = new {struct_name}()'
-                    self.emit(f"const {s.value}{val};")
+                    if is_ptr:
+                        val = f' = {self.expr(s.exprs[0])}' if s.exprs else ' = null'
+                    else:
+                        val = f' = {self.expr(s.exprs[0])}' if s.exprs else f' = new {struct_name}()'
+                    self.emit(f"let {s.value}{val};")
                 return
 
+            if L == 'python' and not s.exprs:
+                self.emit(f'{s.value} = 0' if (s.declared_type in ('int', 'float', 'double')) else f'{s.value} = None')
+                return
             val = f' = {self._assignment_value(s, self.expr(s.exprs[0]))}' if s.exprs else ''
             if L == 'python':
                 self.emit(f'{s.value}{val}')
@@ -1079,6 +1205,35 @@ class Generator:
             if s.value in ('free',):
                 if L == 'c': self.emit(f"free({self.expr(s.exprs[0])});")
                 return
+            if s.value == 'scanf':
+                if L == 'c':
+                    rendered_args = [self.expr(a) for a in s.exprs]
+                    self.emit(f"scanf({', '.join(rendered_args)});")
+                    return
+                elif L == 'python':
+                    fmt = self.expr(s.exprs[0]) if s.exprs else '""'
+                    for arg in s.exprs[1:]:
+                        dest_node = arg.children[0] if arg.kind == 'address_of' else arg
+                        dest_str = self.expr(dest_node)
+                        if 'f' in fmt:
+                            self.emit(f"{dest_str} = float(input())")
+                        elif 'd' in fmt or 'i' in fmt:
+                            self.emit(f"{dest_str} = int(input())")
+                        else:
+                            self.emit(f"{dest_str} = input()")
+                    return
+                else:
+                    fmt = self.expr(s.exprs[0]) if s.exprs else '""'
+                    for arg in s.exprs[1:]:
+                        dest_node = arg.children[0] if arg.kind == 'address_of' else arg
+                        dest_str = self.expr(dest_node)
+                        if 'f' in fmt:
+                            self.emit(f"{dest_str} = parseFloat(prompt() || '0');")
+                        elif 'd' in fmt or 'i' in fmt:
+                            self.emit(f"{dest_str} = parseInt(prompt() || '0', 10);")
+                        else:
+                            self.emit(f"{dest_str} = prompt() || '';")
+                    return
             old_in_call = getattr(self, '_in_call_arg', False)
             self._in_call_arg = True
             rendered_args = []

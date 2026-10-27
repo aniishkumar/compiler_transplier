@@ -670,15 +670,26 @@ class Parser:
             self.take(')')
             left = Expr('construct', class_name, args, t.line)
         elif t.value == '(':
-            # Check for C cast e.g. (Student*) or (int)
+            # Check for C cast e.g. (Student*), (struct Student *), (int), (float)
             is_cast = False
-            if self.lang == 'c' and self.t.kind in ('IDENT', 'KEYWORD'):
-                peek_val = self.peek(1).value
-                peek2_val = self.peek(2).value
-                if peek_val == ')' or (peek_val == '*' and peek2_val == ')'):
-                    is_cast = True
+            if self.lang == 'c':
+                k = 0
+                tok_val = self.t.value
+                if tok_val == 'struct':
+                    k += 1
+                if self.peek(k).kind in ('IDENT', 'KEYWORD') and (self.peek(k).value in ('int', 'float', 'double', 'char', 'void', 'bool', 'short', 'long') or self.peek(k).value in self.struct_names or tok_val == 'struct'):
+                    k += 1
+                    while self.peek(k).value == '*':
+                        k += 1
+                    if self.peek(k).value == ')':
+                        is_cast = True
             if is_cast:
-                cast_type = self.take().value
+                cast_type = ""
+                if self.t.value == 'struct':
+                    self.take()
+                    cast_type = f"struct {self.take().value}"
+                else:
+                    cast_type = self.take().value
                 while self.accept('*'):
                     cast_type += '*'
                 self.take(')')
@@ -720,7 +731,23 @@ class Parser:
         elif t.kind == 'STRING':
             left = Expr('char' if self.lang == 'c' and t.value.startswith("'") else 'literal', t.value, line=t.line)
         elif t.kind in ('IDENT', 'KEYWORD'):
-            if self.accept('('):
+            if t.value == 'sizeof' and self.accept('('):
+                type_name = ""
+                if self.accept('struct'):
+                    type_name = f"struct {self.take().value}"
+                    while self.accept('*'):
+                        type_name += '*'
+                    arg = Expr('type', type_name, line=t.line)
+                elif self.t.value in ('int', 'float', 'double', 'char', 'void', 'bool', 'short', 'long') or self.t.value in self.struct_names:
+                    type_name = self.take().value
+                    while self.accept('*'):
+                        type_name += '*'
+                    arg = Expr('type', type_name, line=t.line)
+                else:
+                    arg = self.expr()
+                self.take(')')
+                left = Expr('call', 'sizeof', [arg], t.line)
+            elif self.accept('('):
                 args = self.parse_arguments(')')
                 self.take(')')
                 # If identifier is a known struct / class name or PascalCase, treat as construct call in Python/C

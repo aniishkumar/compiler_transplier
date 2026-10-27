@@ -7,8 +7,9 @@ def analyze(program, language='c', detailed=False):
     symbols = []
     warnings = []
     arrays = set()
+    pointers = set()
     classes = set()
-    std_funcs = {'printf', 'println', 'malloc', 'free', 'sizeof', 'sqrt', 'pow', 'abs',
+    std_funcs = {'printf', 'println', 'malloc', 'realloc', 'free', 'sizeof', 'scanf', 'sqrt', 'pow', 'abs',
                  'sin', 'cos', 'tan', 'floor', 'ceil', 'len', 'range', 'int', 'float', 'str', 'math', 'Math', 'super'}
 
     def inferred_type(expression):
@@ -81,6 +82,8 @@ def analyze(program, language='c', detailed=False):
     def expr(e, scope):
         if not hasattr(e, 'kind'):
             return
+        if e.kind == 'type':
+            return
         if e.kind == 'name':
             if e.value not in scope and e.value not in ('self', 'this', 'NULL', 'null', 'None') and e.value not in classes and e.value not in std_funcs:
                 raise CompileError(f"use of undeclared variable {e.value!r}", e.line, 'semantic')
@@ -88,7 +91,7 @@ def analyze(program, language='c', detailed=False):
             if isinstance(e.value, str):
                 if e.value not in scope and e.value not in ('self', 'this'):
                     raise CompileError(f"use of undeclared variable {e.value!r}", e.line, 'semantic')
-                if e.value not in arrays:
+                if e.value not in arrays and e.value not in pointers:
                     raise CompileError(f"variable {e.value!r} is not an array", e.line, 'semantic')
             elif hasattr(e.value, 'kind'):
                 expr(e.value, scope)
@@ -131,6 +134,8 @@ def analyze(program, language='c', detailed=False):
                 scope.add(s.value)
                 if s.kind == 'array_decl':
                     arrays.add(s.value)
+                if s.declared_type and '*' in s.declared_type:
+                    pointers.add(s.value)
                 if s.declared_type == 'const':
                     consts.add(s.value)
                 record_symbol(s.value, s.declared_type, s.exprs[0] if s.exprs else None, s.line, 'array' if s.kind == 'array_decl' else 'variable')
@@ -152,7 +157,7 @@ def analyze(program, language='c', detailed=False):
                     raise CompileError(f"cannot assign to constant {s.value!r}", s.line, 'semantic')
                 if s.value not in scope:
                     raise CompileError(f"assignment to undeclared variable {s.value!r}", s.line, 'semantic')
-                if s.value not in arrays:
+                if s.value not in arrays and s.value not in pointers:
                     raise CompileError(f"variable {s.value!r} is not an array", s.line, 'semantic')
             elif s.kind == 'member_assign':
                 target = s.exprs[0]

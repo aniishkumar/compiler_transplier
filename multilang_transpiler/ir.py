@@ -50,6 +50,10 @@ def _expr(node):
                 'entries': [{'key': child.value, 'value': _expr(child.children[0])} for child in node.children], 'line': node.line}
     if node.kind == 'pair':
         return {'op': 'PAIR', 'key': node.value, 'value': _expr(node.children[0]), 'line': node.line}
+    if node.kind == 'cast':
+        return {'op': 'CAST', 'type': node.value, 'operand': _expr(node.children[0]), 'line': node.line}
+    if node.kind == 'type':
+        return {'op': 'TYPE', 'value': node.value, 'line': node.line}
     return {'op': node.kind.upper(), 'value': node.value,
             'children': [_expr(child) for child in node.children if isinstance(child, Expr)], 'line': node.line}
 
@@ -155,6 +159,10 @@ def _restore_expr(data):
     if op == 'CONSTRUCT_OBJECT': return Expr('construct', data['class_name'], [_restore_expr(a) for a in data['arguments']], line)
     if op == 'DICT_LITERAL': return Expr('dict', None, [Expr('pair', e['key'], [_restore_expr(e['value'])], line) for e in data.get('entries', [])], line)
     if op == 'PAIR': return Expr('pair', data['key'], [_restore_expr(data['value'])], line)
+    if op == 'CAST':
+        operand = _restore_expr(data['operand']) if 'operand' in data else (_restore_expr(data['children'][0]) if data.get('children') else None)
+        return Expr('cast', data.get('type') or data.get('value'), [operand] if operand else [], line)
+    if op == 'TYPE': return Expr('type', data.get('value'), line=line)
     raise ValueError(f'unknown IR expression operation {op!r}')
 
 
