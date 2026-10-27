@@ -82,8 +82,13 @@ class Generator:
         if e.kind == 'member':
             target_node = e.children[0]
             target_type = None
-            if target_node.kind == 'name' and target_node.value in ('self', 'this', 's'):
-                target_type = env.get(target_node.value) or env.get('self') or env.get('this') or env.get('s')
+            if target_node.kind == 'name':
+                if target_node.value in ('self', 'this', 's'):
+                    target_type = env.get(target_node.value) or env.get('self') or env.get('this') or env.get('s')
+                    if not target_type and getattr(self, '_current_struct', None):
+                        target_type = f"{self._current_struct}*"
+                else:
+                    target_type = env.get(target_node.value)
             if not target_type:
                 target_type = self._expr_type(target_node, env)
             st = self.structs.get(target_type.rstrip('*').replace('struct ', '').strip() if target_type else '')
@@ -329,6 +334,10 @@ class Generator:
 
         self.statement_envs = {}
         self.global_env = self._infer_block([s for s in program.body if s.kind not in ('function', 'struct', 'class')], {}, record=True)
+        for st in self.structs.values():
+            for m in st.body:
+                m_env = {'s': f"{st.value}*", 'self': f"{st.value}*", 'this': f"{st.value}*"}
+                self._infer_block(m.body, m_env, record=True)
         for fn in self.function_nodes.values():
             params = dict(self.function_params.get(fn.value, {}))
             self.function_envs[fn.value] = self._infer_block(fn.body, params, record=True)
@@ -527,7 +536,7 @@ class Generator:
             specs.append(full)
         if len(specs) != len(args):
             raise CompileError(f'printf format has {len(specs)} supported conversion specifier(s) but {len(args)} value argument(s)', line, 'semantic')
-        env = self.statement_envs.get(getattr(self, '_current_print_id', -1), self.global_env)
+        env = self.statement_envs.get(getattr(self, '_current_print_id', -1), getattr(self, '_active_env', self.global_env))
         for spec, arg in zip(specs, args):
             typ = self._expr_type(arg, env)
             code = spec[-1]
@@ -570,7 +579,7 @@ class Generator:
         if not args:
             self.emit('printf("\\n");')
             return
-        env = self.statement_envs.get(id(s), self.global_env)
+        env = self.statement_envs.get(id(s), getattr(self, '_active_env', self.global_env))
         formats = []
         values = []
         for arg in args:
@@ -691,9 +700,12 @@ class Generator:
                     ret_type = self._c_type(m.declared_type or 'void', m.line, m_name)
                     self.emit(f"{ret_type} {m_name}({', '.join(rendered)}) {{")
                     old_env = getattr(self, '_active_env', {})
+                    old_struct = getattr(self, '_current_struct', None)
+                    self._current_struct = name
                     self._active_env = {'s': f"{name}*", 'self': f"{name}*", 'this': f"{name}*"}
                     self.suite(m.body)
                     self._active_env = old_env
+                    self._current_struct = old_struct
                     self.emit('}\n')
             elif L == 'python':
                 if not methods and getattr(s, 'declared_type', None) == 'dataclass':
