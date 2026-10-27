@@ -12,6 +12,9 @@ import subprocess
 import sys
 import tempfile
 
+# Prevent pytest from treating this standalone runner as a test file
+__test__ = False
+
 # Dynamically locate project root (works regardless of directory or clone location)
 CURRENT_FILE = pathlib.Path(__file__).resolve()
 ROOT = CURRENT_FILE.parent
@@ -74,7 +77,7 @@ def run_c(code: str) -> str:
         return run.stdout.strip()
 
 
-def test_stage(name: str, fn):
+def execute_stage(name: str, fn):
     print(f"[*] Testing {name}...", end=" ", flush=True)
     try:
         fn()
@@ -121,7 +124,7 @@ int main() {
             js_out = run_node(js_code)
             assert js_out == "11", f"JS output mismatch: {js_out} != 11"
 
-    all_passed &= test_stage("Pointer & Mutation Translation (C -> Python -> JS)", test_pointers)
+    all_passed &= execute_stage("Pointer & Mutation Translation (C -> Python -> JS)", test_pointers)
 
     # 2. Struct / Class & Member Access Pipeline
     def test_structs():
@@ -146,7 +149,7 @@ int main() {
             js_out = run_node(js_code)
             assert js_out == "101 Anish", f"JS output mismatch: {js_out} != '101 Anish'"
 
-    all_passed &= test_stage("Struct to Class Translation (C -> Python -> JS)", test_structs)
+    all_passed &= execute_stage("Struct to Class Translation (C -> Python -> JS)", test_structs)
 
     # 3. JS Class with Methods to Python and C
     def test_js_class():
@@ -172,7 +175,7 @@ s.display();
             c_out = run_c(c_code)
             assert c_out == "101 Anish", f"C output mismatch: {c_out} != '101 Anish'"
 
-    all_passed &= test_stage("Class & Methods Translation (JS -> Python -> C)", test_js_class)
+    all_passed &= execute_stage("Class & Methods Translation (JS -> Python -> C)", test_js_class)
 
     # 4. Standard Library Imports (math / <math.h>)
     def test_imports():
@@ -195,7 +198,7 @@ print(root)
             c_out = run_c(c_code)
             assert float(c_out) == 4.0
 
-    all_passed &= test_stage("Standard Library Imports (Python -> JS -> C)", test_imports)
+    all_passed &= execute_stage("Standard Library Imports (Python -> JS -> C)", test_imports)
 
     # 5. CLI Verification
     def test_cli():
@@ -211,7 +214,7 @@ print(root)
             assert test_py.exists()
             assert "print" in test_py.read_text(encoding="utf-8")
 
-    all_passed &= test_stage("CLI Pipeline Subcommands (--version, check, inspect, translate)", test_cli)
+    all_passed &= execute_stage("CLI Pipeline Subcommands (--version, check, inspect, translate)", test_cli)
 
     print("=" * 65)
     if all_passed:
