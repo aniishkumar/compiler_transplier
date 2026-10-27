@@ -40,6 +40,24 @@ class Generator:
         self.needs_stdlib = False
         self.needs_string = False
         self.user_includes = []
+        self._array_literal_values = {}
+
+    @staticmethod
+    def _subst_node(node, old_name, new_expr):
+        if not hasattr(node, 'kind'):
+            return node
+        if node.kind == 'name' and node.value == old_name:
+            return new_expr
+        if isinstance(node, Expr):
+            new_children = [Generator._subst_node(c, old_name, new_expr) for c in node.children]
+            return Expr(node.kind, node.value, new_children, getattr(node, 'line', 1))
+        if isinstance(node, Stmt):
+            new_exprs = [Generator._subst_node(e, old_name, new_expr) for e in node.exprs]
+            new_body = [Generator._subst_node(b, old_name, new_expr) for b in node.body]
+            new_other = [Generator._subst_node(o, old_name, new_expr) for o in node.otherwise]
+            return Stmt(node.kind, node.value, exprs=new_exprs, body=new_body, otherwise=new_other,
+                        line=getattr(node, 'line', 1), declared_type=getattr(node, 'declared_type', None))
+        return node
 
     @staticmethod
     def _literal_value(value):
@@ -176,6 +194,14 @@ class Generator:
                 if record: self.statement_envs[id(s)] = dict(loop_env)
                 self._record_calls(init.children[0], loop_env)
                 self._record_calls(s.exprs[1], loop_env)
+                self._infer_block(s.body, loop_env, record)
+                continue
+            if s.kind == 'for_in':
+                target_expr = s.exprs[0]
+                loop_env = dict(env)
+                loop_env[s.value] = 'int'
+                if record: self.statement_envs[id(s)] = dict(loop_env)
+                self._record_calls(target_expr, loop_env)
                 self._infer_block(s.body, loop_env, record)
                 continue
             if record: self.statement_envs[id(s)] = dict(env)
@@ -956,6 +982,12 @@ class Generator:
         elif s.kind == 'array_decl':
             self.declared_in_scope.add(s.value)
             arr = s.exprs[0]
+            if not hasattr(self, '_array_literal_values'):
+                self._array_literal_values = {}
+            self._array_literal_values[s.value] = arr.children
+            if L == 'c' and any(self._expr_type(child, getattr(self, '_active_env', {})) in self.structs or (child.kind == 'name' and getattr(self, '_active_env', {}).get(child.value) in self.structs) for child in arr.children):
+                self.emit(f"/* {s.value} = [{', '.join(self.expr(x) for x in arr.children)}] */")
+                return
             size = arr.value if arr.value is not None else len(arr.children)
             values_list = [self.expr(x) for x in arr.children]
             if L != 'c' and arr.value is not None: values_list.extend('0' for _ in range(max(0, size - len(values_list))))
@@ -965,6 +997,13 @@ class Generator:
                 prefix = '' if L == 'python' else ('const ' if s.declared_type == 'const' else 'let ')
                 self.emit(prefix + f'{s.value} = [{values}]' + (';' if L != 'python' else ''))
         elif s.kind == 'assign':
+            if s.exprs and hasattr(s.exprs[0], 'kind') and s.exprs[0].kind == 'array':
+                if not hasattr(self, '_array_literal_values'):
+                    self._array_literal_values = {}
+                self._array_literal_values[s.value] = s.exprs[0].children
+                if L == 'c' and any(self._expr_type(child, getattr(self, '_active_env', {})) in self.structs or (child.kind == 'name' and getattr(self, '_active_env', {}).get(child.value) in self.structs) for child in s.exprs[0].children):
+                    self.emit(f"/* {s.value} = [{', '.join(self.expr(x) for x in s.exprs[0].children)}] */")
+                    return
             value = self._assignment_value(s, self.expr(s.exprs[0]))
             target = s.value
             if L != 'c' and s.value in self.ref_vars:
@@ -1007,6 +1046,33 @@ class Generator:
             else:
                 prefix = ('let ' if L == 'javascript' and init.value is True else ('int ' if L == 'c' and init.value is True else ''))
                 self.blockhead(f'for ({prefix}{s.value} = {initval}; {self.expr(cond)}; {update})', s.body)
+        elif s.kind == 'for_in':
+            var_name = s.value
+            target = s.exprs[0]
+            if L == 'python':
+                self.blockhead(f"for {var_name} in {self.expr(target)}", s.body)
+            elif L == 'javascript':
+                self.blockhead(f"for (const {var_name} of {self.expr(target)})", s.body)
+            else:
+                elements = None
+                if target.kind == 'name' and hasattr(self, '_array_literal_values') and target.value in self._array_literal_values:
+                    elements = self._array_literal_values[target.value]
+                elif target.kind == 'array':
+                    elements = target.children
+                if elements:
+                    for elem in elements:
+                        for b_stmt in s.body:
+                            cloned = self._subst_node(b_stmt, var_name, elem)
+                            self.stmt(cloned)
+                else:
+                    t_name = self.expr(target)
+                    self.emit(f"for (int _i = 0; _i < sizeof({t_name}) / sizeof({t_name}[0]); _i++) {{")
+                    self.level += 1
+                    self.emit(f"int {var_name} = {t_name}[_i];")
+                    for b_stmt in s.body:
+                        self.stmt(b_stmt)
+                    self.level -= 1
+                    self.emit("}")
         elif s.kind == 'return':
             self.emit('return' + (' ' + self.expr(s.exprs[0]) if s.exprs else '') + (';' if L != 'python' else ''))
         elif s.kind == 'call':

@@ -597,6 +597,11 @@ class Parser:
         if declared:
             self.take()
         name = self.take().value
+        if self.accept('of') or self.accept('in'):
+            iter_expr = self.expr()
+            self.take(')')
+            body = self.block()
+            return Stmt('for_in', name, [iter_expr], body, line=t.line)
         self.take('=')
         init = self.expr()
         self.take(';')
@@ -625,24 +630,28 @@ class Parser:
         t = self.take()
         name = t.value
         self.take('in')
-        self.take('range')
-        self.take('(')
-        args = []
-        if self.t.value != ')':
-            while True:
-                args.append(self.expr())
-                if not self.accept(','):
-                    break
-        self.take(')')
-        if len(args) == 1:
-            start = Expr('literal', '0', line=t.line)
-            stop = args[0]
-        elif len(args) == 2:
-            start, stop = args
+        if self.accept('range'):
+            self.take('(')
+            args = []
+            if self.t.value != ')':
+                while True:
+                    args.append(self.expr())
+                    if not self.accept(','):
+                        break
+            self.take(')')
+            if len(args) == 1:
+                start = Expr('literal', '0', line=t.line)
+                stop = args[0]
+            elif len(args) == 2:
+                start, stop = args
+            else:
+                raise CompileError('range() supports one or two arguments in this subset', t.line, 'syntax')
+            body = self.block()
+            return Stmt('for', name, [Expr('for_init', True, [start], t.line), Expr('binary', '<', [Expr('name', name, line=t.line), stop], t.line), Expr('update', '++', [Expr('name', name, line=t.line)], t.line)], body, line=t.line)
         else:
-            raise CompileError('range() supports one or two arguments in this subset', t.line, 'syntax')
-        body = self.block()
-        return Stmt('for', name, [Expr('for_init', True, [start], t.line), Expr('binary', '<', [Expr('name', name, line=t.line), stop], t.line), Expr('update', '++', [Expr('name', name, line=t.line)], t.line)], body, line=t.line)
+            iter_expr = self.expr()
+            body = self.block()
+            return Stmt('for_in', name, [iter_expr], body, line=t.line)
 
     def expr(self, minp=0):
         t = self.take()

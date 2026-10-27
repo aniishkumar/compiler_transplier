@@ -188,6 +188,13 @@ def analyze(program, language='c', detailed=False):
                     expr(e, loop_scope)
                 block(s.body, loop_scope, consts)
                 continue
+            if s.kind == 'for_in':
+                iter_target = s.exprs[0]
+                expr(iter_target, scope)
+                loop_scope = set(scope)
+                loop_scope.add(s.value)
+                block(s.body, loop_scope, consts)
+                continue
             for e in s.exprs:
                 expr(e, scope)
             if s.kind in ('if', 'while'):

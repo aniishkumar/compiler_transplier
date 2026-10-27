@@ -106,6 +106,10 @@ def _stmt(node):
         return {'op': 'LOOP_FOR', 'variable': node.value,
                 'initializer': _expr(node.exprs[0]), 'condition': _expr(node.exprs[1]),
                 'update': _expr(node.exprs[2]), 'body': [_stmt(child) for child in node.body], 'line': line}
+    if node.kind == 'for_in':
+        return {'op': 'LOOP_FOR_IN', 'variable': node.value,
+                'target': _expr(node.exprs[0]),
+                'body': [_stmt(child) for child in node.body], 'line': line}
     if node.kind == 'function':
         params = node.exprs[0]
         types = list(params.value or [])
@@ -185,6 +189,7 @@ def _restore_stmt(data):
     if op == 'BRANCH': return Stmt('if', exprs=[_restore_expr(data['condition'])], body=[_restore_stmt(child) for child in data['then']], otherwise=[_restore_stmt(child) for child in data['else']], line=line)
     if op == 'LOOP_WHILE': return Stmt('while', exprs=[_restore_expr(data['condition'])], body=[_restore_stmt(child) for child in data['body']], line=line)
     if op == 'LOOP_FOR': return Stmt('for', data['variable'], [_restore_expr(data['initializer']), _restore_expr(data['condition']), _restore_expr(data['update'])], [_restore_stmt(child) for child in data['body']], line=line)
+    if op == 'LOOP_FOR_IN': return Stmt('for_in', data['variable'], [_restore_expr(data['target'])], [_restore_stmt(child) for child in data['body']], line=line)
     if op == 'FUNCTION':
         params = Expr('params', [param.get('type') for param in data['parameters']], [param['name'] for param in data['parameters']], line)
         return Stmt('function', data['name'], [params], [_restore_stmt(child) for child in data['body']], line=line, declared_type=data.get('return_type'))

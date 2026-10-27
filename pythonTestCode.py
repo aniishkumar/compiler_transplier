@@ -1,61 +1,68 @@
 # Parent class
-class Employee:
+class Vehicle:
 
-    def __init__(self, name, employee_id, salary):
-        self.name = name
-        self.employee_id = employee_id
-        self.salary = salary
+    def __init__(self, brand, model, speed):
+        self.brand = brand
+        self.model = model
+        self.speed = speed
 
     def display_details(self):
-        print("Name:", self.name)
-        print("Employee ID:", self.employee_id)
-        print("Salary:", self.salary)
+        print("Brand:", self.brand)
+        print("Model:", self.model)
+        print("Speed:", self.speed)
 
-    def work(self):
-        print(self.name, "is working.")
+    def start(self):
+        print(self.brand, "vehicle is starting.")
 
 
 # Child class 1
-class Developer(Employee):
+class Car(Vehicle):
 
-    def __init__(self, name, employee_id, salary, programming_language):
-        super().__init__(name, employee_id, salary)
-        self.programming_language = programming_language
+    def __init__(self, brand, model, speed, fuel_type):
+        super().__init__(brand, model, speed)
+        self.fuel_type = fuel_type
 
-    # Method overriding
-    def work(self):
-        print(self.name, "is developing software using", self.programming_language)
+    def start(self):
+        print(self.brand, "car is starting with", self.fuel_type)
 
     def display_details(self):
         super().display_details()
-        print("Programming Language:", self.programming_language)
+        print("Fuel Type:", self.fuel_type)
 
 
 # Child class 2
-class Manager(Employee):
+class Bike(Vehicle):
 
-    def __init__(self, name, employee_id, salary, team_size):
-        super().__init__(name, employee_id, salary)
-        self.team_size = team_size
+    def __init__(self, brand, model, speed, engine_cc):
+        super().__init__(brand, model, speed)
+        self.engine_cc = engine_cc
 
-    # Method overriding
-    def work(self):
-        print(self.name, "is managing a team of", self.team_size, "employees.")
+    def start(self):
+        print(self.brand, "bike is starting.")
 
     def display_details(self):
         super().display_details()
-        print("Team Size:", self.team_size)
+        print("Engine CC:", self.engine_cc)
 
 
 # Creating objects
-dev = Developer("Anish", 101, 60000, "Python")
-manager = Manager("Rahul", 102, 90000, 10)
+car1 = Car("Toyota", "Fortuner", 180, "Diesel")
+bike1 = Bike("Yamaha", "R15", 140, 155)
 
 # Display details
-print("----- Developer Details -----")
-dev.display_details()
-dev.work()
+print("----- CAR DETAILS -----")
+car1.display_details()
+car1.start()
 
-print("\n----- Manager Details -----")
-manager.display_details()
-manager.work()
+print("\n----- BIKE DETAILS -----")
+bike1.display_details()
+bike1.start()
+
+
+# Polymorphism
+print("\n----- POLYMORPHISM -----")
+
+vehicles = [car1, bike1]
+
+for vehicle in vehicles:
+    vehicle.start()
