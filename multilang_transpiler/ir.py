@@ -66,6 +66,7 @@ def _stmt(node):
         fields = [_stmt(f) for f in node.exprs] if node.exprs else []
         methods = [_stmt(m) for m in node.body] if node.body else []
         return {'op': 'DECLARE_STRUCT', 'name': node.value, 'is_class': node.kind == 'class',
+                'base_class': getattr(node, 'declared_type', None),
                 'fields': fields, 'methods': methods, 'line': line}
     if node.kind == 'field':
         return {'op': 'FIELD', 'name': node.value, 'type': node.declared_type,
@@ -164,7 +165,7 @@ def _restore_stmt(data):
         fields = [_restore_stmt(f) for f in data.get('fields', [])]
         methods = [_restore_stmt(m) for m in data.get('methods', [])]
         kind = 'class' if data.get('is_class') else 'struct'
-        return Stmt(kind, data['name'], exprs=fields, body=methods, line=line)
+        return Stmt(kind, data['name'], exprs=fields, body=methods, line=line, declared_type=data.get('base_class'))
     if op == 'FIELD':
         exprs = [_restore_expr(data['default'])] if data.get('default') is not None else []
         return Stmt('field', data['name'], exprs=exprs, line=line, declared_type=data.get('type'))

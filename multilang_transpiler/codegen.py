@@ -260,6 +260,20 @@ class Generator:
         self.structs = {s.value: s for s in program.body if s.kind in ('struct', 'class')}
         self.function_nodes = {s.value: s for s in program.body if s.kind == 'function'}
         self._detect_references(program)
+
+        # Track method names per struct to qualify colliding companion functions in C
+        self.struct_method_names = {}
+        method_counts = {}
+        for st in self.structs.values():
+            for m in st.body:
+                method_counts[m.value] = method_counts.get(m.value, 0) + 1
+        for st in self.structs.values():
+            for m in st.body:
+                if method_counts[m.value] > 1 or getattr(st, 'declared_type', None):
+                    self.struct_method_names[(st.value, m.value)] = f"{st.value}_{m.value}"
+                else:
+                    self.struct_method_names[(st.value, m.value)] = m.value
+
         # Infer field types of structs from construct calls
         for st in program.body:
             c_call = None
@@ -277,6 +291,26 @@ class Generator:
                                 s_node.exprs[f_idx].declared_type = 'char[50]'
                             elif a_type:
                                 s_node.exprs[f_idx].declared_type = a_type
+
+        # Propagate field types between derived and base classes
+        for s_node in self.structs.values():
+            base_name = getattr(s_node, 'declared_type', None)
+            if base_name and base_name in self.structs:
+                base_node = self.structs[base_name]
+                for bf in base_node.exprs:
+                    for df in s_node.exprs:
+                        if bf.value == df.value:
+                            if df.declared_type and not bf.declared_type:
+                                bf.declared_type = df.declared_type
+                            elif bf.declared_type and not df.declared_type:
+                                df.declared_type = bf.declared_type
+
+        # Heuristic for string fields if still unknown
+        for s_node in self.structs.values():
+            for f in s_node.exprs:
+                if not f.declared_type:
+                    if f.value in ('name', 'programming_language', 'title', 'language') or f.value.endswith(('_name', '_str', '_text', '_string')):
+                        f.declared_type = 'char[50]'
 
         for name, fn in self.function_nodes.items():
             explicit = self._explicit_type(fn.declared_type)
@@ -448,11 +482,33 @@ class Generator:
                 if self.lang == 'python': return f"math.{method}({', '.join(args)})"
                 if self.lang == 'javascript': return f"Math.{method}({', '.join(args)})"
             if self.lang == 'c':
+                if target_node.kind == 'call' and target_node.value == 'super':
+                    current_st = self.structs.get(getattr(self, '_current_struct', None))
+                    base_class = getattr(current_st, 'declared_type', None)
+                    if base_class:
+                        fn_name = self.struct_method_names.get((base_class, method), f"{base_class}_{method}")
+                        call_args = [f"({base_class} *)s"] + args
+                        return f"{fn_name}({', '.join(call_args)})"
                 ref_target = self.expr(target_node)
+                target_type = None
+                if target_node.kind == 'name':
+                    target_type = getattr(self, '_active_env', {}).get(target_node.value)
+                if not target_type:
+                    target_type = self._expr_type(target_node, getattr(self, '_active_env', {}))
+                struct_name = target_type.rstrip('*').replace('struct ', '').strip() if target_type else None
+                fn_name = method
+                if struct_name and (struct_name, method) in self.struct_method_names:
+                    fn_name = self.struct_method_names[(struct_name, method)]
+                elif (getattr(self, '_current_struct', None), method) in self.struct_method_names:
+                    fn_name = self.struct_method_names[(self._current_struct, method)]
                 if not self._is_pointer(target_node):
                     ref_target = f"&{ref_target}"
                 call_args = [ref_target] + args
-                return f"{method}({', '.join(call_args)})"
+                return f"{fn_name}({', '.join(call_args)})"
+            if target_node.kind == 'call' and target_node.value == 'super':
+                if self.lang == 'python':
+                    return f"super().{method}({', '.join(args)})"
+                return f"super.{method}({', '.join(args)})"
             target = self.expr(target_node)
             return f"{target}.{method}({', '.join(args)})"
         if e.kind == 'address_of':
@@ -698,7 +754,8 @@ class Generator:
                         p_t = rest_types[idx] if idx < len(rest_types) and rest_types[idx] else 'int'
                         rendered.append(f"{self._c_type(p_t, m.line, p_n)} {p_n}")
                     ret_type = self._c_type(m.declared_type or 'void', m.line, m_name)
-                    self.emit(f"{ret_type} {m_name}({', '.join(rendered)}) {{")
+                    c_fn_name = self.struct_method_names.get((name, m.value), m_name)
+                    self.emit(f"{ret_type} {c_fn_name}({', '.join(rendered)}) {{")
                     old_env = getattr(self, '_active_env', {})
                     old_struct = getattr(self, '_current_struct', None)
                     self._current_struct = name
@@ -720,16 +777,25 @@ class Generator:
                     self.level -= 1
                     self.emit('')
                 else:
-                    self.emit(f'class {name}:')
+                    base_str = f"({s.declared_type})" if getattr(s, 'declared_type', None) else ""
+                    self.emit(f'class {name}{base_str}:')
                     self.level += 1
                     field_names = [f.value for f in fields]
                     init_args = ['self'] + field_names
                     self.emit(f"def __init__({', '.join(init_args)}):")
                     self.level += 1
-                    if not field_names:
-                        self.emit('pass')
-                    for f_name in field_names:
-                        self.emit(f"self.{f_name} = {f_name}")
+                    base_name = getattr(s, 'declared_type', None)
+                    if base_name and base_name in self.structs:
+                        base_fields = [f.value for f in self.structs[base_name].exprs]
+                        self.emit(f"super().__init__({', '.join(base_fields)})")
+                        for f_name in field_names:
+                            if f_name not in base_fields:
+                                self.emit(f"self.{f_name} = {f_name}")
+                    else:
+                        if not field_names:
+                            self.emit('pass')
+                        for f_name in field_names:
+                            self.emit(f"self.{f_name} = {f_name}")
                     self.level -= 1
                     self.emit('')
                     for m in methods:
@@ -740,13 +806,22 @@ class Generator:
                         self.emit('')
                     self.level -= 1
             else:
-                self.emit(f'class {name} {{')
+                base_str = f" extends {s.declared_type}" if getattr(s, 'declared_type', None) else ""
+                self.emit(f'class {name}{base_str} {{')
                 self.level += 1
                 field_names = [f.value for f in fields]
                 self.emit(f"constructor({', '.join(field_names)}) {{")
                 self.level += 1
-                for f_name in field_names:
-                    self.emit(f"this.{f_name} = {f_name};")
+                base_name = getattr(s, 'declared_type', None)
+                if base_name and base_name in self.structs:
+                    base_fields = [f.value for f in self.structs[base_name].exprs]
+                    self.emit(f"super({', '.join(base_fields)});")
+                    for f_name in field_names:
+                        if f_name not in base_fields:
+                            self.emit(f"this.{f_name} = {f_name};")
+                else:
+                    for f_name in field_names:
+                        self.emit(f"this.{f_name} = {f_name};")
                 self.level -= 1
                 self.emit('}')
                 for m in methods:
@@ -796,15 +871,43 @@ class Generator:
             method = s.value
             args = [self.expr(x) for x in s.exprs[1:]]
             if L == 'c':
+                if target_node.kind == 'call' and target_node.value == 'super':
+                    current_st = self.structs.get(getattr(self, '_current_struct', None))
+                    base_class = getattr(current_st, 'declared_type', None)
+                    if base_class:
+                        fn_name = self.struct_method_names.get((base_class, method), f"{base_class}_{method}")
+                        call_args = [f"({base_class} *)s"] + args
+                        self.emit(f"{fn_name}({', '.join(call_args)});")
+                    return
                 ref_target = self.expr(target_node)
+                target_type = None
+                if target_node.kind == 'name':
+                    target_type = getattr(self, '_active_env', {}).get(target_node.value)
+                if not target_type:
+                    target_type = self._expr_type(target_node, getattr(self, '_active_env', {}))
+                struct_name = target_type.rstrip('*').replace('struct ', '').strip() if target_type else None
+                fn_name = method
+                if struct_name and (struct_name, method) in self.struct_method_names:
+                    fn_name = self.struct_method_names[(struct_name, method)]
+                elif (getattr(self, '_current_struct', None), method) in self.struct_method_names:
+                    fn_name = self.struct_method_names[(self._current_struct, method)]
                 if not self._is_pointer(target_node):
                     ref_target = f"&{ref_target}"
                 call_args = [ref_target] + args
-                self.emit(f"{method}({', '.join(call_args)});")
+                self.emit(f"{fn_name}({', '.join(call_args)});")
             elif L == 'python':
-                self.emit(f"{self.expr(target_node)}.{method}({', '.join(args)})")
+                if target_node.kind == 'call' and target_node.value == 'super':
+                    self.emit(f"super().{method}({', '.join(args)})")
+                else:
+                    self.emit(f"{self.expr(target_node)}.{method}({', '.join(args)})")
             else:
-                self.emit(f"{self.expr(target_node)}.{method}({', '.join(args)});")
+                if target_node.kind == 'call' and target_node.value == 'super':
+                    if method in ('__init__', 'constructor'):
+                        self.emit(f"super({', '.join(args)});")
+                    else:
+                        self.emit(f"super.{method}({', '.join(args)});")
+                else:
+                    self.emit(f"{self.expr(target_node)}.{method}({', '.join(args)});")
             return
 
         if s.kind == 'decl':

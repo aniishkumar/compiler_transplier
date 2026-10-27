@@ -12,6 +12,7 @@ class Parser:
         self.ts = tokenize(self.source, language)
         self.i = 0
         self.struct_names = set()
+        self.classes_by_name = {}
 
     @property
     def t(self):
@@ -260,13 +261,19 @@ class Parser:
             self.take('class')
             name = self.take().value
             self.struct_names.add(name)
+            base_class = None
             if self.accept('('):
-                self.take()  # base class
+                if self.t.value != ')':
+                    base_class = self.take().value
                 self.take(')')
             elif self.accept('extends'):
-                self.take()  # base class
+                base_class = self.take().value
             fields = []
             methods = []
+            if base_class and hasattr(self, 'classes_by_name') and base_class in self.classes_by_name:
+                for f in self.classes_by_name[base_class].exprs:
+                    if not any(ex.value == f.value for ex in fields):
+                        fields.append(Stmt('field', f.value, exprs=list(f.exprs), line=f.line, declared_type=f.declared_type))
             if self.lang == 'python':
                 self.take(':')
                 self.skipnl()
@@ -327,7 +334,10 @@ class Parser:
                         methods.append(Stmt('function', m_name, [Expr('params', value=[], children=m_params, line=t.line)], m_body, line=t.line))
                     self.skipnl()
                 self.take('}')
-            return Stmt('class', name, exprs=fields, body=methods, line=t.line)
+            cls_node = Stmt('class', name, exprs=fields, body=methods, line=t.line, declared_type=base_class)
+            if hasattr(self, 'classes_by_name'):
+                self.classes_by_name[name] = cls_node
+            return cls_node
 
         # Functions
         is_c_func = False
@@ -512,6 +522,10 @@ class Parser:
         if self.t.kind in ('IDENT', 'KEYWORD'):
             name = self.take().value
             left = Expr('name', name, line=t.line)
+            if self.accept('('):
+                args = self.parse_arguments(')')
+                self.take(')')
+                left = Expr('call', name, args, line=t.line)
 
             # Check for member access or index
             while True:
@@ -521,8 +535,8 @@ class Parser:
                     if self.accept('('):
                         args = self.parse_arguments(')')
                         self.take(')')
-                        self.accept(';')
-                        return Stmt('method_call', member, [left] + args, line=t.line)
+                        left = Expr('method_call', member, [left] + args, line=t.line)
+                        continue
                     left = Expr('member', member, [left], line=t.line)
                 elif self.t.value == '[':
                     self.take()
@@ -536,8 +550,21 @@ class Parser:
                             rhs = Expr('binary', op[0], [Expr('index', name, [idx], t.line), rhs], op.line)
                         return Stmt('array_assign', name, [idx, rhs], line=t.line)
                     left = Expr('index', left.value if left.kind == 'name' else left, [idx], line=t.line)
+                elif self.t.value == '(' and left.kind == 'member':
+                    self.take()
+                    args = self.parse_arguments(')')
+                    self.take(')')
+                    left = Expr('method_call', left.value, [left.children[0]] + args, line=t.line)
                 else:
                     break
+
+            if left.kind == 'method_call':
+                self.accept(';')
+                return Stmt('method_call', left.value, left.children, line=t.line)
+
+            if left.kind == 'call':
+                self.accept(';')
+                return Stmt('call', left.value, left.children, line=t.line)
 
             if left.kind == 'member':
                 if self.t.value in ('=', '+=', '-=', '*=', '/='):
@@ -546,6 +573,11 @@ class Parser:
                     self.accept(';')
                     return Stmt('member_assign', left.value, [left.children[0], rhs], line=t.line, declared_type=op)
 
+            if self.t.value in ('++', '--'):
+                op = self.take().value
+                self.accept(';')
+                return Stmt('compound_assign', name, [Expr('operator', op[0], line=t.line), Expr('literal', '1', line=t.line)], line=t.line)
+
             # Regular assignment
             op = self.t.value
             if op in ('=', '+=', '-=', '*=', '/='):
@@ -553,12 +585,6 @@ class Parser:
                 rhs = self.expr()
                 self.accept(';')
                 return Stmt('assign' if op == '=' else 'compound_assign', name, [rhs] if op == '=' else [Expr('operator', op, line=t.line), rhs], line=t.line)
-
-            if self.accept('('):
-                args = self.parse_arguments(')')
-                self.take(')')
-                self.accept(';')
-                return Stmt('call', name, args, line=t.line)
 
             raise CompileError('expected assignment or function call', t.line, 'syntax')
 

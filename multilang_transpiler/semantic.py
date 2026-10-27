@@ -9,7 +9,7 @@ def analyze(program, language='c', detailed=False):
     arrays = set()
     classes = set()
     std_funcs = {'printf', 'println', 'malloc', 'free', 'sizeof', 'sqrt', 'pow', 'abs',
-                 'sin', 'cos', 'tan', 'floor', 'ceil', 'len', 'range', 'int', 'float', 'str', 'math', 'Math'}
+                 'sin', 'cos', 'tan', 'floor', 'ceil', 'len', 'range', 'int', 'float', 'str', 'math', 'Math', 'super'}
 
     def inferred_type(expression):
         if expression.kind == 'char': return 'char'
@@ -51,6 +51,7 @@ def analyze(program, language='c', detailed=False):
                         m_name = f"{statement.value}.{method.value}"
                         params = method.exprs[0].children if method.exprs else []
                         functions[m_name] = (len(params), method.line)
+                continue
             elif statement.kind == 'function':
                 if statement.value in functions:
                     raise CompileError(f"duplicate function definition {statement.value!r}", statement.line, 'semantic')
