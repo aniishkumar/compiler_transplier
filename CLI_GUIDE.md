@@ -19,24 +19,63 @@
 
 All nine language pairs are implemented by the shared compiler and exercised by the test suite. This does not mean every construct in the full languages is supported. JavaScript `.mjs` inputs infer JavaScript; generated output uses the standard `.js` extension.
 
-## Install on macOS
+## Installation
 
-From the CLI project directory:
+### Windows (PowerShell)
+
+From the project root directory:
+
+```powershell
+python --version                 # Must be Python 3.10 or newer
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
+
+# Test CLI
+transpiler --help
+multilang --help
+```
+
+### macOS and Linux
 
 ```sh
 python3 --version                 # Must be Python 3.10 or newer
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install .
+python -m pip install -e .
 multilang --help
+transpiler --help
 ```
 
-This builds and installs the CLI into the active virtual environment without administrator access. Flask is optional and is not required for file conversion. For the copied web dashboard, install `python -m pip install '.[dashboard]'` from the project directory.
+This builds and installs the CLI into the active virtual environment without administrator access. Flask is optional and is not required for file conversion. For the web dashboard, install `python -m pip install '.[dashboard]'` from the project directory.
 
 ## Commands
 
-```sh
+### 3×3 Transpiler CLI (`transpiler`)
+
+PowerShell commands:
+```powershell
+# In PowerShell:
+.\transpiler.bat translate samples\hello.c --to python
+.\transpiler.bat translate samples\hello.py --to javascript
+.\transpiler.bat translate samples\hello.js --to c
+.\transpiler.bat translate main.c --to python -o output.py
+
+# Inspect AST, IR, or tokens
+.\transpiler.bat inspect samples\hello.c --ast
+.\transpiler.bat inspect samples\hello.c --ir
+
+# Validate syntax and semantics
+.\transpiler.bat check samples\hello.c
+.\transpiler.bat languages
+.\transpiler.bat --version
+```
+
+### Multilang CLI (`multilang`)
+
+```powershell
 multilang --help
 multilang --version
 multilang languages

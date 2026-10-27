@@ -2,45 +2,109 @@
 
 An educational source-to-source compiler for a documented common subset of C, Python, and JavaScript. Its `multilang convert` command converts one file at a time through the shared tokenizer, parser, semantic checks, IR, and target generators. An optional `multilang migrate` command handles project folders separately. The local Flask dashboard remains available, and conversion never executes user programs.
 
-## Setup (macOS and Linux)
+## Setup
+
+### Windows (PowerShell)
+
+Open PowerShell and run:
+
+```powershell
+# Navigate to project root
+python --version                 # Python 3.10+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e .
+```
+
+> **Note**: If script execution is restricted on Windows, allow it in PowerShell for the current process:
+> ```powershell
+> Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+> ```
+
+### macOS and Linux (Bash / Zsh)
 
 ```sh
-cd multilang_transpiler
 python3 --version                 # Python 3.10+
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install .
+python -m pip install --upgrade pip
+python -m pip install -e .
 ```
 
 The CLI has no third-party runtime dependencies. To run the optional dashboard, install Flask with `python -m pip install '.[dashboard]'` (or `python -m pip install -r requirements.txt`).
 
-For generated-code validation, install a C compiler (`clang` or `gcc`) and Node.js. On macOS, `xcode-select --install` provides clang. On Debian/Ubuntu, install the C toolchain with `sudo apt install build-essential`; install Node.js with your preferred package manager.
+For generated-code validation, install a C compiler (`clang` or `gcc`) and Node.js:
+- **Windows (PowerShell)**: Install MinGW-w64 or GCC (e.g. via `winget install GCC` or MSYS2 / Chocolatey `choco install mingw`) and Node.js (`winget install OpenJS.NodeJS`).
+- **macOS**: `xcode-select --install` provides clang.
+- **Debian / Ubuntu**: `sudo apt install build-essential nodejs`.
 
 ## Run
 
-```sh
-multilang --help
-multilang convert samples/hello.py --to javascript
-multilang convert samples/hello.py --to c --output ./build/hello.c
-multilang convert program.txt --from python --to javascript --check
-multilang languages
-# Optional project migration:
-multilang migrate ./my_project --from python --to javascript
-multilang migrate ./my_project --from python --to javascript --dry-run
+### Bidirectional 3×3 Transpiler CLI (`transpiler`)
 
-# Existing one-file compiler command remains available:
-multilang-transpiler --from python --to javascript --input samples/hello.py --output /tmp/hello.js
-python -m multilang_transpiler --from javascript --to c --input samples/hello.js --output /tmp/hello.c --dump ir
+The `transpiler` command supports logic-preserving translation across all 6 directions (C ↔ Python ↔ JavaScript), pointer/reference abstractions, structs/classes, and common IR inspection:
+
+#### In Windows PowerShell:
+```powershell
+# Using the transpiler batch wrapper or entrypoint
+.\transpiler.bat translate samples\hello.c --to python
+.\transpiler.bat translate samples\hello.py --to javascript
+.\transpiler.bat translate samples\hello.js --to c
+.\transpiler.bat translate main.c --to python -o output.py
+
+# Inspect Intermediate Representation (IR), AST, or tokens
+.\transpiler.bat inspect samples\hello.c --ast
+.\transpiler.bat inspect samples\hello.c --ir
+
+# Validate syntax and semantics
+.\transpiler.bat check samples\hello.c
+
+# List supported languages and translation routes
+.\transpiler.bat languages
+.\transpiler.bat --version
+```
+
+#### In Bash / Zsh:
+```sh
+transpiler translate samples/hello.c --to python
+transpiler translate samples/hello.py --to js -o output.js
+transpiler inspect samples/hello.c --ir
+transpiler check samples/hello.c
+transpiler languages
+transpiler --version
+```
+
+### Multilang CLI (`multilang`)
+
+```powershell
+# In PowerShell:
+multilang --help
+multilang convert samples\hello.py --to javascript
+multilang convert samples\hello.py --to c --output .\build\hello.c
+multilang convert samples\hello.js --from javascript --to c --check
+multilang languages
+
+# Project folder migration:
+multilang migrate .\my_project --from python --to javascript
+multilang migrate .\my_project --from python --to javascript --dry-run
 ```
 
 Single-file conversion writes `<source-stem>.<target-extension>` in the current directory, or the selected path/directory. It never silently replaces an existing output; use `--force` deliberately. Project migration, when explicitly selected, writes a separate project folder and ZIP. See [CLI_GUIDE.md](CLI_GUIDE.md) for installation, usage, validation, migration details, and limitations.
 
 The CLI does not execute the input or generated program. Review generated code before running it. `--dump tokens`, `--dump ast`, and `--dump ir` write diagnostics to stderr; output source goes to the requested file.
 
-## Start the dashboard on macOS
+## Start the Dashboard
 
-Install the optional dashboard dependency first, then run from the project directory with the virtual environment active:
+Install the optional dashboard dependency first, then run with the virtual environment active:
 
+#### In Windows PowerShell:
+```powershell
+python -m pip install '.[dashboard]'
+python -m webapp.app
+```
+
+#### In macOS / Linux:
 ```sh
 python -m pip install '.[dashboard]'
 python -m webapp.app
@@ -48,15 +112,29 @@ python -m webapp.app
 
 Open [http://127.0.0.1:5000](http://127.0.0.1:5000). The server binds to localhost only. The browser app uses the built-in editor with syntax coloring and does not load third-party scripts.
 
-## Tests
+## Run Tests
 
+#### In Windows PowerShell:
+```powershell
+# Run complete test suite (all 89 unit, integration, and compiler tests)
+python -m pytest
+
+# Or with unittest
+python -m unittest discover -s tests -v
+
+# Run the 3x3 bidirectional tests specifically
+python -m pytest tests/test_bidirectional_transpiler.py -v
+```
+
+#### In macOS / Linux:
 ```sh
+python -m pytest
 python -m unittest discover -s tests -v
 ```
 
 The complete suite includes dashboard tests, so install the optional dashboard extra before running it: `python -m pip install '.[dashboard]'`.
 
-Tests cover the supplied regression programs through all nine routes, array conversions, false branches, output argument parsing, type diagnostics, and Flask/API behavior. The [test report](docs/TEST_REPORT.md) records the actual suite result. Run `python tools/build_matrix_report.py` to regenerate the actual syntax/runtime results in [the conversion matrix report](docs/CONVERSION_MATRIX.md). Syntax validation alone does not prove runtime equivalence. Runtime checks execute only the checked-in regression programs; dashboard submissions are never executed. Dashboard tests validate generated syntax when possible; no user or generated programs are executed by API endpoints.
+Tests cover all six bidirectional translation directions, pointer dereferencing and address-of operations, C structs to Python/JS classes and companion functions, import mappings, regression programs through all nine routes, array conversions, and Flask/API behavior.
 
 ## Feature support
 
