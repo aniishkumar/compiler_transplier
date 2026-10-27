@@ -4,8 +4,10 @@ from .semantic import analyze
 from .ir import lower
 from .codegen import generate
 from .errors import CompileError
+from .console import configure_console
 
 def main(argv=None):
+    configure_console()
     ap=argparse.ArgumentParser(prog='multilang-transpiler',description='Transpile the documented C/Python/JavaScript subset.')
     ap.add_argument('--from',dest='source',required=True,choices=['c','python','javascript'])
     ap.add_argument('--to',dest='target',required=True,choices=['c','python','javascript'])

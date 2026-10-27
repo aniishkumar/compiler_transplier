@@ -7,6 +7,7 @@ from . import __version__
 from .project_migration import LANGUAGES, MigrationError, SOURCE_EXTENSIONS, migrate_project
 from .file_conversion import ConversionError, DISPLAY_NAMES, convert_file
 from .errors import CompileError
+from .console import configure_console
 
 
 def _language_matrix() -> str:
@@ -149,6 +150,7 @@ def _run_conversion(args) -> int:
 
 
 def main(argv=None) -> int:
+    configure_console()
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command == "languages":

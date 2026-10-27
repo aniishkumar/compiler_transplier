@@ -13,6 +13,7 @@ dependencies = []
 dashboard = ["Flask>=3.1,<4.0"]
 
 [project.scripts]
+transpiler = "multilang_transpiler.transpiler_cli:main"
 multilang = "multilang_transpiler.project_cli:main"
 multilang-transpiler = "multilang_transpiler.cli:main"
 

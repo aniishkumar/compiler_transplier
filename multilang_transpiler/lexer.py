@@ -9,7 +9,7 @@ class Token:
     line: int
 
 _PATTERN = re.compile(r'''(?P<SPACE>[ \t]+)|(?P<BLOCK_COMMENT>/\*[\s\S]*?\*/)|(?P<COMMENT>//[^\n]*|\#[^\n]*)|(?P<STRING>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<NUMBER>\d+(?:\.\d+)?)|(?P<ID>[A-Za-z_$][A-Za-z0-9_$]*)|(?P<OP>==|!=|<=|>=|\+=|-=|\*=|/=|\+\+|--|&&|\|\||->|[+*/%<>=!&|^-])|(?P<PUNCT>[(){}\[\],;:.])|(?P<NEWLINE>\n)|(?P<BAD>.)''')
-KEYWORDS = set('int float double char bool void string let const var if else elif while for function def return print println True False true false null None and or not'.split())
+KEYWORDS = set('int float double char bool void string let const var if else elif while for function def return print println True False true false null None and or not struct class typedef new this self import from as export sizeof malloc free try catch except finally throw raise pass'.split())
 
 def tokenize(source: str, language='c'):
     out=[]; line=1; at_start=True; indents=[0]
@@ -37,7 +37,12 @@ def tokenize(source: str, language='c'):
         elif k=='COMMENT': continue
         elif k=='BLOCK_COMMENT':
             line += v.count('\n')
-        elif k=='BAD': raise CompileError(f"unexpected character {v!r}",line,'lexical')
+        elif k == 'BAD':
+            if language == 'python' and v == '@':
+                out.append(Token('PUNCT', '@', line))
+                at_start = False
+                continue
+            raise CompileError(f"unexpected character {v!r}", line, 'lexical')
         elif k=='ID': out.append(Token('KEYWORD' if v in KEYWORDS else 'IDENT',v,line)); at_start=False
         else: out.append(Token(k,v,line)); at_start=False
     while len(indents)>1: indents.pop(); out.append(Token('DEDENT','',line))
