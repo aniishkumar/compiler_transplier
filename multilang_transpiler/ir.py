@@ -203,6 +203,7 @@ def _restore_stmt(data):
         return Stmt('function', data['name'], [params], [_restore_stmt(child) for child in data['body']], line=line, declared_type=data.get('return_type'))
     if op == 'RETURN': return Stmt('return', exprs=[_restore_expr(data['value'])] if data.get('value') is not None else [], line=line)
     if op == 'CALL_STATEMENT': return Stmt('call', data['function'], [_restore_expr(arg) for arg in data['arguments']], line=line)
+    if op == 'TRY': return Stmt('try', None, body=[_restore_stmt(child) for child in data.get('body', [])], otherwise=[_restore_stmt(child) for child in data.get('otherwise', [])], line=line)
     raise ValueError(f'unknown IR statement operation {op!r}')
 
 

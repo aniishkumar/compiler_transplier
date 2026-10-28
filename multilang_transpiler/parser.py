@@ -99,15 +99,62 @@ class Parser:
 
     def parse_arguments(self, closing):
         args = []
+        self.skipnl()
         if self.t.value == closing:
             return args
         while True:
-            args.append(self.expr())
-            if not self.accept(','):
-                break
+            self.skipnl()
             if self.t.value == closing:
                 break
+            args.append(self.expr())
+            self.skipnl()
+            if not self.accept(','):
+                break
+            self.skipnl()
+            if self.t.value == closing:
+                break
+        self.skipnl()
         return args
+
+    def _extract_promise_val(self, node):
+        if not hasattr(node, 'kind'):
+            return None
+        if node.kind == 'arrow_func':
+            for child in node.children[1:]:
+                res = self._find_resolve_arg(child)
+                if res is not None:
+                    return res
+        return None
+
+    def _find_resolve_arg(self, node):
+        if not node:
+            return None
+        if hasattr(node, 'kind'):
+            if node.kind == 'call' and getattr(node, 'value', '') == 'resolve':
+                if getattr(node, 'children', []):
+                    return node.children[0]
+                if getattr(node, 'exprs', []):
+                    return node.exprs[0]
+            if getattr(node, 'kind', '') == 'method_call' and getattr(node, 'value', '') == 'resolve':
+                return node.children[1] if len(node.children) > 1 else None
+            for child in getattr(node, 'children', []):
+                r = self._find_resolve_arg(child)
+                if r is not None:
+                    return r
+            for e in getattr(node, 'exprs', []):
+                r = self._find_resolve_arg(e)
+                if r is not None:
+                    return r
+            for b in getattr(node, 'body', []):
+                r = self._find_resolve_arg(b)
+                if r is not None:
+                    return r
+        elif isinstance(node, list):
+            for item in node:
+                r = self._find_resolve_arg(item)
+                if r is not None:
+                    return r
+        return None
 
     def parse_field(self):
         t = self.t
@@ -314,6 +361,8 @@ class Parser:
                 self.skipnl()
                 while self.t.value != '}' and self.t.kind != 'EOF':
                     m_name = self.take().value
+                    if m_name in ('get', 'set', 'async') and self.t.value != '(':
+                        m_name = self.take().value
                     self.take('(')
                     m_params = []
                     while self.t.value != ')':
@@ -330,7 +379,7 @@ class Parser:
                                 if not any(f.value == s.value for f in fields):
                                     fields.append(Stmt('field', s.value, line=s.line))
                         for p in m_params:
-                            if not any(f.value == p for f in fields):
+                            if not any(f.value in (p, f'_{p}') for f in fields):
                                 fields.append(Stmt('field', p, line=t.line))
                     else:
                         methods.append(Stmt('function', m_name, [Expr('params', value=[], children=m_params, line=t.line)], m_body, line=t.line))
@@ -342,6 +391,12 @@ class Parser:
             return cls_node
 
         # Functions
+        if v == 'async':
+            self.take('async')
+            self.skipnl()
+            t = self.t
+            v = t.value
+
         is_c_func = False
         if v in ('int', 'void', 'float', 'double', 'char', 'bool', 'string') or v in self.struct_names:
             offset = 1
@@ -523,6 +578,22 @@ class Parser:
             self.accept(';')
             return Stmt('return', exprs=exprs, line=t.line)
 
+        if v == 'try':
+            self.take('try')
+            try_body = self.block()
+            catch_body = []
+            self.skipnl()
+            if self.accept('catch'):
+                if self.accept('('):
+                    err_name = self.take().value
+                    self.take(')')
+                catch_body = self.block()
+            elif self.accept('except'):
+                if self.t.value != ':':
+                    self.take()
+                catch_body = self.block()
+            return Stmt('try', None, exprs=[], body=try_body, otherwise=catch_body, line=t.line)
+
         # Identifiers, calls, assignments, member assignments
         if self.t.kind in ('IDENT', 'KEYWORD'):
             name = self.take().value
@@ -564,6 +635,18 @@ class Parser:
                     break
 
             if left.kind == 'method_call':
+                if left.value == 'forEach' and len(left.children) >= 2:
+                    cb = left.children[1]
+                    if cb.kind == 'arrow_func':
+                        p_node = cb.children[0]
+                        p_name = p_node.children[0] if p_node.children else 'item'
+                        if hasattr(p_name, 'value'):
+                            p_name = p_name.value
+                        loop_body = cb.children[1:]
+                        if len(loop_body) == 1 and isinstance(loop_body[0], list):
+                            loop_body = loop_body[0]
+                        self.accept(';')
+                        return Stmt('for_in', p_name, [left.children[0]], loop_body, line=t.line)
                 self.accept(';')
                 return Stmt('method_call', left.value, left.children, line=t.line)
 
@@ -664,6 +747,8 @@ class Parser:
         # Unary operators
         if t.value in ('-', '!', 'not'):
             left = Expr('unary', t.value, [self.expr(7)], t.line)
+        elif t.value == 'await':
+            left = self.expr(7)
         elif t.value == '&':
             left = Expr('address_of', None, [self.expr(7)], t.line)
         elif t.value == '*':
@@ -673,7 +758,11 @@ class Parser:
             self.take('(')
             args = self.parse_arguments(')')
             self.take(')')
-            left = Expr('construct', class_name, args, t.line)
+            if class_name == 'Promise' and args:
+                prom_val = self._extract_promise_val(args[0])
+                left = prom_val if prom_val is not None else Expr('construct', class_name, args, t.line)
+            else:
+                left = Expr('construct', class_name, args, t.line)
         elif t.value == '(':
             # Check for C cast e.g. (Student*), (struct Student *), (int), (float)
             is_cast = False
@@ -701,8 +790,40 @@ class Parser:
                 operand = self.expr(minp=7)
                 left = Expr('cast', cast_type, [operand], t.line)
             else:
-                left = self.expr()
-                self.take(')')
+                self.skipnl()
+                if self.accept(')'):
+                    if self.accept('=>'):
+                        body = self.block() if self.t.value == '{' else self.expr()
+                        body_list = body if isinstance(body, list) else [body]
+                        left = Expr('arrow_func', None, [Expr('params', value=[], children=[], line=t.line)] + body_list, line=t.line)
+                    else:
+                        left = Expr('name', 'None', line=t.line)
+                else:
+                    first = self.expr()
+                    if self.accept(','):
+                        params = [first.value if hasattr(first, 'value') else str(first)]
+                        while True:
+                            self.skipnl()
+                            if self.t.value == ')':
+                                break
+                            p_tok = self.expr()
+                            params.append(p_tok.value if hasattr(p_tok, 'value') else str(p_tok))
+                            self.skipnl()
+                            if not self.accept(','):
+                                break
+                        self.take(')')
+                        self.take('=>')
+                        body = self.block() if self.t.value == '{' else self.expr()
+                        body_list = body if isinstance(body, list) else [body]
+                        left = Expr('arrow_func', None, [Expr('params', value=[], children=params, line=t.line)] + body_list, line=t.line)
+                    else:
+                        self.take(')')
+                        if self.accept('=>'):
+                            body = self.block() if self.t.value == '{' else self.expr()
+                            body_list = body if isinstance(body, list) else [body]
+                            left = Expr('arrow_func', None, [Expr('params', value=[], children=[first.value if hasattr(first, 'value') else str(first)], line=t.line)] + body_list, line=t.line)
+                        else:
+                            left = first
         elif t.value == '[':
             items = []
             if self.t.value != ']':
@@ -728,17 +849,26 @@ class Parser:
             else:
                 # Object / Dict literal
                 pairs = []
+                self.skipnl()
                 if self.t.value != '}':
                     while True:
-                        k_tok = self.take()
-                        key = k_tok.value.strip('"\'') if k_tok.kind in ('STRING', 'IDENT', 'KEYWORD') else k_tok.value
-                        self.take(':')
-                        v_expr = self.expr()
-                        pairs.append(Expr('pair', key, [v_expr], k_tok.line))
-                        if not self.accept(','):
-                            break
+                        self.skipnl()
                         if self.t.value == '}':
                             break
+                        k_tok = self.take()
+                        key = k_tok.value.strip('"\'') if k_tok.kind in ('STRING', 'IDENT', 'KEYWORD') else k_tok.value
+                        self.skipnl()
+                        self.take(':')
+                        self.skipnl()
+                        v_expr = self.expr()
+                        pairs.append(Expr('pair', key, [v_expr], k_tok.line))
+                        self.skipnl()
+                        if not self.accept(','):
+                            break
+                        self.skipnl()
+                        if self.t.value == '}':
+                            break
+                self.skipnl()
                 self.take('}')
                 left = Expr('dict', None, pairs, t.line)
         elif t.kind == 'NUMBER' or t.value in ('True', 'False', 'true', 'false', 'null', 'None', 'NULL'):
@@ -774,7 +904,12 @@ class Parser:
                 else:
                     left = Expr('call', t.value, args, t.line)
             else:
-                left = Expr('name', t.value, line=t.line)
+                if self.accept('=>'):
+                    body = self.block() if self.t.value == '{' else self.expr()
+                    body_list = body if isinstance(body, list) else [body]
+                    left = Expr('arrow_func', None, [Expr('params', value=[], children=[t.value], line=t.line)] + body_list, line=t.line)
+                else:
+                    left = Expr('name', t.value, line=t.line)
         else:
             raise CompileError(f"expected expression, got {t.value!r}", t.line, 'syntax')
 

@@ -8,8 +8,8 @@ class Token:
     value: str
     line: int
 
-_PATTERN = re.compile(r'''(?P<SPACE>[ \t]+)|(?P<BLOCK_COMMENT>/\*[\s\S]*?\*/)|(?P<COMMENT>//[^\n]*|\#[^\n]*)|(?P<STRING>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<NUMBER>\d+(?:\.\d+)?)|(?P<ID>[A-Za-z_$][A-Za-z0-9_$]*)|(?P<OP>==|!=|<=|>=|\+=|-=|\*=|/=|\+\+|--|&&|\|\||->|[+*/%<>=!&|^-])|(?P<PUNCT>[(){}\[\],;:.])|(?P<NEWLINE>\n)|(?P<BAD>.)''')
-KEYWORDS = set('int float double char bool void string let const var if else elif while for function def return print println True False true false null None and or not struct class typedef new this self import from as export sizeof malloc free try catch except finally throw raise pass'.split())
+_PATTERN = re.compile(r'''(?P<SPACE>[ \t]+)|(?P<BLOCK_COMMENT>/\*[\s\S]*?\*/)|(?P<COMMENT>//[^\n]*|\#[^\n]*)|(?P<STRING>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<NUMBER>\d+(?:\.\d+)?)|(?P<ID>[A-Za-z_$][A-Za-z0-9_$]*)|(?P<OP>=>|==|!=|<=|>=|\+=|-=|\*=|/=|\+\+|--|&&|\|\||->|[+*/%<>=!&|^-])|(?P<PUNCT>[(){}\[\],;:.])|(?P<NEWLINE>\n)|(?P<BAD>.)''')
+KEYWORDS = set('int float double char bool void string let const var if else elif while for function def return print println True False true false null None and or not struct class typedef new this self import from as export sizeof malloc free try catch except finally throw raise pass async await get set'.split())
 
 def tokenize(source: str, language='c'):
     out=[]; line=1; at_start=True; indents=[0]

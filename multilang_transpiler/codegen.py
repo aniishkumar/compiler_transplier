@@ -137,6 +137,8 @@ class Generator:
         if e.kind == 'array':
             item_types = {self._expr_type(child, env) for child in e.children}
             return 'int[]' if not item_types or item_types <= {'int'} else None
+        if e.kind == 'dict':
+            return e.value or getattr(e, 'declared_type', None) or 'dict'
         if e.kind == 'unary':
             return 'bool' if e.value in ('!', 'not') else self._expr_type(e.children[0], env)
         if e.kind == 'binary':
@@ -253,7 +255,7 @@ class Generator:
             elif s.kind == 'array_assign' and self.lang == 'c':
                 if self._expr_type(s.exprs[1], env) != 'int':
                     raise CompileError('only integer values can be assigned to supported C arrays', s.line, 'semantic')
-            elif s.kind in ('if', 'while'):
+            elif s.kind in ('if', 'while', 'try'):
                 self._infer_block(s.body, env, record)
                 self._infer_block(s.otherwise, env, record)
         return env
@@ -387,8 +389,21 @@ class Generator:
                             typ = self._explicit_type(stmt.declared_type) or (self._expr_type(stmt.exprs[0], local) if stmt.exprs else None)
                             if typ: local[stmt.value] = typ
                         elif stmt.kind == 'return' and stmt.exprs:
-                            typ = self._expr_type(stmt.exprs[0], local)
-                            if typ: returns.add(typ)
+                            ret_expr = stmt.exprs[0]
+                            if ret_expr.kind == 'dict':
+                                struct_name = f"{fn.value}_Result"
+                                fields = []
+                                for pair in ret_expr.children:
+                                    field_type = self._expr_type(pair.children[0], local) or 'string'
+                                    field_c_type = 'char[100]' if self.lang == 'c' and field_type == 'string' else field_type
+                                    fields.append(Stmt('field', pair.value, exprs=[], declared_type=field_c_type))
+                                synth_st = Stmt('struct', struct_name, exprs=fields, body=[])
+                                self.structs[struct_name] = synth_st
+                                ret_expr.value = struct_name
+                                returns.add(struct_name)
+                            else:
+                                typ = self._expr_type(ret_expr, local)
+                                if typ: returns.add(typ)
                         collect_returns(stmt.body, local)
                         collect_returns(stmt.otherwise, local)
                         if stmt.kind == 'group': collect_returns(stmt.body, local)
@@ -535,7 +550,7 @@ class Generator:
                 if self.lang == 'python': return f"math.{method}({', '.join(args)})"
                 if self.lang == 'javascript': return f"Math.{method}({', '.join(args)})"
             if self.lang == 'c':
-                if target_node.kind == 'call' and target_node.value == 'super':
+                if (target_node.kind == 'call' and target_node.value == 'super') or (target_node.kind == 'name' and target_node.value == 'super'):
                     current_st = self.structs.get(getattr(self, '_current_struct', None))
                     base_class = getattr(current_st, 'declared_type', None)
                     if base_class:
@@ -558,7 +573,7 @@ class Generator:
                     ref_target = f"&{ref_target}"
                 call_args = [ref_target] + args
                 return f"{fn_name}({', '.join(call_args)})"
-            if target_node.kind == 'call' and target_node.value == 'super':
+            if (target_node.kind == 'call' and target_node.value == 'super') or (target_node.kind == 'name' and target_node.value == 'super'):
                 if self.lang == 'python':
                     return f"super().{method}({', '.join(args)})"
                 return f"super.{method}({', '.join(args)})"
@@ -575,6 +590,10 @@ class Generator:
                 return f"{self.expr(operand)}.value"
             return f"(*{self.expr(operand)})"
         if e.kind == 'dict':
+            if self.lang == 'c':
+                cast_prefix = f"({e.value})" if getattr(e, 'value', None) else ""
+                entries = [f'.{c.value} = {self.expr(c.children[0])}' for c in e.children]
+                return f"{cast_prefix}{{{', '.join(entries)}}}"
             entries = [f'{c.value}: {self.expr(c.children[0])}' if self.lang == 'javascript' else f'"{c.value}": {self.expr(c.children[0])}' for c in e.children]
             return '{' + ', '.join(entries) + '}'
         if e.kind == 'cast':
@@ -789,8 +808,12 @@ class Generator:
                 words = ('True', 'False') if self.source == 'python' else ('true', 'false')
                 values.append(f'({value} ? "{words[0]}" : "{words[1]}")')
             elif typ in self.structs:
-                formats.append('%p')
-                values.append(f"&{self.expr(arg)}")
+                st = self.structs[typ]
+                parts = []
+                for f in st.exprs:
+                    parts.append(f"{f.value}: %s")
+                    values.append(f"{self.expr(arg)}.{f.value}")
+                formats.append("{" + ", ".join(parts) + "}")
             else:
                 name = arg.value if arg.kind == 'name' else 'expression'
                 raise CompileError(f"cannot safely print {name!r} as C because its type cannot be inferred", arg.line, 'generation')
@@ -892,8 +915,19 @@ class Generator:
                     for idx, p_n in enumerate(rest_params):
                         p_t = rest_types[idx] if idx < len(rest_types) and rest_types[idx] else 'int'
                         rendered.append(f"{self._c_type(p_t, m.line, p_n)} {p_n}")
-                    ret_type = self._c_type(m.declared_type or 'void', m.line, m_name)
-                    c_fn_name = self.struct_method_names.get((name, m.value), m_name)
+                    ret_type = 'void'
+                    if m.declared_type:
+                        ret_type = self._c_type(m.declared_type, m.line, m_name)
+                    else:
+                        for b_stmt in m.body:
+                            if b_stmt.kind == 'return' and b_stmt.exprs:
+                                m_env = {'s': f"{name}*", 'self': f"{name}*", 'this': f"{name}*"}
+                                typ = self._expr_type(b_stmt.exprs[0], m_env)
+                                if typ:
+                                    ret_type = self._c_type(typ, m.line, m_name)
+                                    break
+                    c_fn_name = self.struct_method_names.get((name, m.value), f"{name}_{m_name}")
+                    self.struct_method_names[(name, m.value)] = c_fn_name
                     self.emit(f"{ret_type} {c_fn_name}({', '.join(rendered)}) {{")
                     old_env = getattr(self, '_active_env', {})
                     old_struct = getattr(self, '_current_struct', None)
@@ -1029,7 +1063,7 @@ class Generator:
             method = s.value
             args = [self.expr(x) for x in s.exprs[1:]]
             if L == 'c':
-                if target_node.kind == 'call' and target_node.value == 'super':
+                if (target_node.kind == 'call' and target_node.value == 'super') or (target_node.kind == 'name' and target_node.value == 'super'):
                     current_st = self.structs.get(getattr(self, '_current_struct', None))
                     base_class = getattr(current_st, 'declared_type', None)
                     if base_class:
@@ -1045,21 +1079,34 @@ class Generator:
                     target_type = self._expr_type(target_node, getattr(self, '_active_env', {}))
                 struct_name = target_type.rstrip('*').replace('struct ', '').strip() if target_type else None
                 fn_name = method
-                if struct_name and (struct_name, method) in self.struct_method_names:
-                    fn_name = self.struct_method_names[(struct_name, method)]
-                elif (getattr(self, '_current_struct', None), method) in self.struct_method_names:
+                curr_s = struct_name
+                matched_s = None
+                while curr_s:
+                    if (curr_s, method) in self.struct_method_names:
+                        fn_name = self.struct_method_names[(curr_s, method)]
+                        matched_s = curr_s
+                        break
+                    st_obj = self.structs.get(curr_s)
+                    if st_obj and any(m.value == method for m in getattr(st_obj, 'body', [])):
+                        fn_name = f"{curr_s}_{method}"
+                        matched_s = curr_s
+                        break
+                    curr_s = getattr(st_obj, 'declared_type', None)
+                if not matched_s and (getattr(self, '_current_struct', None), method) in self.struct_method_names:
                     fn_name = self.struct_method_names[(self._current_struct, method)]
                 if not self._is_pointer(target_node):
                     ref_target = f"&{ref_target}"
+                if matched_s and matched_s != struct_name:
+                    ref_target = f"({matched_s} *){ref_target}"
                 call_args = [ref_target] + args
                 self.emit(f"{fn_name}({', '.join(call_args)});")
             elif L == 'python':
-                if target_node.kind == 'call' and target_node.value == 'super':
+                if (target_node.kind == 'call' and target_node.value == 'super') or (target_node.kind == 'name' and target_node.value == 'super'):
                     self.emit(f"super().{method}({', '.join(args)})")
                 else:
                     self.emit(f"{self.expr(target_node)}.{method}({', '.join(args)})")
             else:
-                if target_node.kind == 'call' and target_node.value == 'super':
+                if (target_node.kind == 'call' and target_node.value == 'super') or (target_node.kind == 'name' and target_node.value == 'super'):
                     if method in ('__init__', 'constructor'):
                         self.emit(f"super({', '.join(args)});")
                     else:
@@ -1088,7 +1135,7 @@ class Generator:
                 is_ptr = '*' in clean_type
                 struct_name = clean_type.rstrip('*')
                 if L == 'c':
-                    qualifier = 'const ' if s.declared_type == 'const' else ''
+                    qualifier = ''
                     val = f' = {self.expr(s.exprs[0])}' if s.exprs else ''
                     ptr_star = ' *' if is_ptr else ' '
                     self.emit(f"{qualifier}{struct_name}{ptr_star}{s.value}{val};")
@@ -1113,8 +1160,8 @@ class Generator:
             if L == 'python':
                 self.emit(f'{s.value}{val}')
             elif L == 'c':
-                qualifier = 'const ' if s.declared_type == 'const' else ''
                 c_t = self._c_type(self._type_for(s.exprs[0] if s.exprs else None, s), s.line, s.value)
+                qualifier = 'const ' if s.declared_type == 'const' and c_t not in self.structs else ''
                 self.emit(f'{qualifier}{c_t} {s.value}{val};')
             else:
                 self.emit(("const" if s.declared_type == 'const' else "let") + f' {s.value}{val};')
@@ -1214,6 +1261,27 @@ class Generator:
                         self.stmt(b_stmt)
                     self.level -= 1
                     self.emit("}")
+        elif s.kind == 'try':
+            if L == 'c':
+                for stmt in s.body:
+                    self.stmt(stmt)
+            elif L == 'python':
+                self.emit("try:")
+                self.suite(s.body)
+                self.emit("except Exception as error:")
+                if s.otherwise:
+                    self.suite(s.otherwise)
+                else:
+                    self.level += 1
+                    self.emit("pass")
+                    self.level -= 1
+            else:
+                self.emit("try {")
+                self.suite(s.body)
+                self.emit("} catch (error) {")
+                if s.otherwise:
+                    self.suite(s.otherwise)
+                self.emit("}")
         elif s.kind == 'return':
             self.emit('return' + (' ' + self.expr(s.exprs[0]) if s.exprs else '') + (';' if L != 'python' else ''))
         elif s.kind == 'call':
@@ -1324,6 +1392,9 @@ class Generator:
             # Emit structs and methods first
             for struct in c_structs:
                 self.stmt(struct)
+            for s_name, s_def in self.structs.items():
+                if not any(s.value == s_name for s in c_structs):
+                    self.stmt(s_def)
 
             if self.source == 'c' and has_c_entry:
                 for stmt in p.body:
