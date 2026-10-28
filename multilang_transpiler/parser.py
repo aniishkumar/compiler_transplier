@@ -713,21 +713,34 @@ class Parser:
             self.take(']')
             left = Expr('array', None, items, t.line)
         elif t.value == '{':
-            # Object / Dict literal
-            pairs = []
-            if self.t.value != '}':
-                while True:
-                    k_tok = self.take()
-                    key = k_tok.value.strip('"\'') if k_tok.kind in ('STRING', 'IDENT', 'KEYWORD') else k_tok.value
-                    self.take(':')
-                    v_expr = self.expr()
-                    pairs.append(Expr('pair', key, [v_expr], k_tok.line))
-                    if not self.accept(','):
-                        break
-                    if self.t.value == '}':
-                        break
-            self.take('}')
-            left = Expr('dict', None, pairs, t.line)
+            if self.lang == 'c':
+                # C struct compound literal / initializer list: { expr1, expr2, ... }
+                items = []
+                if self.t.value != '}':
+                    while True:
+                        items.append(self.expr())
+                        if not self.accept(','):
+                            break
+                        if self.t.value == '}':
+                            break
+                self.take('}')
+                left = Expr('array', None, items, t.line)
+            else:
+                # Object / Dict literal
+                pairs = []
+                if self.t.value != '}':
+                    while True:
+                        k_tok = self.take()
+                        key = k_tok.value.strip('"\'') if k_tok.kind in ('STRING', 'IDENT', 'KEYWORD') else k_tok.value
+                        self.take(':')
+                        v_expr = self.expr()
+                        pairs.append(Expr('pair', key, [v_expr], k_tok.line))
+                        if not self.accept(','):
+                            break
+                        if self.t.value == '}':
+                            break
+                self.take('}')
+                left = Expr('dict', None, pairs, t.line)
         elif t.kind == 'NUMBER' or t.value in ('True', 'False', 'true', 'false', 'null', 'None', 'NULL'):
             val = t.value
             if val == 'NULL':
