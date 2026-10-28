@@ -3,61 +3,68 @@
 #include <string.h>
 
 // Structure declaration
-struct Student {
+struct Employee {
     int id;
     char name[50];
-    float marks;
+    float salary;
 };
+
+// Function to display employee details
+void display(struct Employee *ptr, int n) {
+
+    for (int i = 0; i < n; i++) {
+
+        printf("\nEmployee %d\n", i + 1);
+        printf("ID: %d\n", (ptr + i)->id);
+        printf("Name: %s\n", (ptr + i)->name);
+        printf("Salary: %.2f\n", (ptr + i)->salary);
+    }
+}
 
 int main() {
 
     int n;
 
-    printf("Enter number of students: ");
+    printf("Enter number of employees: ");
     scanf("%d", &n);
 
     // Pointer declaration
-    struct Student *ptr;
+    struct Employee *ptr;
 
     // Dynamic memory allocation
-    ptr = (struct Student *)malloc(n * sizeof(struct Student));
+    ptr = (struct Employee *)malloc(n * sizeof(struct Employee));
 
-    // Check allocation
+    // Check memory allocation
     if (ptr == NULL) {
-        printf("Memory allocation failed!");
+        printf("Memory allocation failed!\n");
         return 1;
     }
 
-    // Input student details
+    // Input employee details
     for (int i = 0; i < n; i++) {
 
-        printf("\nEnter details for student %d\n", i + 1);
+        printf("\nEnter Employee %d details\n", i + 1);
 
         printf("Enter ID: ");
-        scanf("%d", &(ptr + i)->id);
+        scanf("%d", &((ptr + i)->id));
 
         printf("Enter Name: ");
         scanf("%49s", (ptr + i)->name);
 
-        printf("Enter Marks: ");
-        scanf("%f", &(ptr + i)->marks);
+        printf("Enter Salary: ");
+        scanf("%f", &((ptr + i)->salary));
     }
 
-    // Display student details
-    printf("\n----- Student Records -----\n");
+    // Display employee details
+    printf("\n----- Employee Records -----\n");
 
-    for (int i = 0; i < n; i++) {
+    display(ptr, n);
 
-        printf("\nID: %d", ptr[i].id);
-        printf("\nName: %s", ptr[i].name);
-        printf("\nMarks: %.2f\n", ptr[i].marks);
-    }
-
-    // Free dynamically allocated memory
+    // Free allocated memory
     free(ptr);
     ptr = NULL;
 
-    printf("\nMemory freed successfully!\n");
+    printf("\nMemory successfully freed!\n");
 
     return 0;
 }
