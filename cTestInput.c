@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 // Structure declaration
 struct Student {
@@ -15,21 +16,22 @@ int main() {
     printf("Enter number of students: ");
     scanf("%d", &n);
 
-    // Dynamic memory allocation
+    // Pointer declaration
     struct Student *ptr;
 
+    // Dynamic memory allocation
     ptr = (struct Student *)malloc(n * sizeof(struct Student));
 
-    // Check memory allocation
+    // Check allocation
     if (ptr == NULL) {
-        printf("Memory allocation failed!\n");
+        printf("Memory allocation failed!");
         return 1;
     }
 
-    // Taking student details
+    // Input student details
     for (int i = 0; i < n; i++) {
 
-        printf("\nEnter details of student %d\n", i + 1);
+        printf("\nEnter details for student %d\n", i + 1);
 
         printf("Enter ID: ");
         scanf("%d", &(ptr + i)->id);
@@ -42,58 +44,20 @@ int main() {
     }
 
     // Display student details
-    printf("\n----- Student Details -----\n");
+    printf("\n----- Student Records -----\n");
 
     for (int i = 0; i < n; i++) {
 
-        printf("\nStudent %d\n", i + 1);
-
-        printf("ID: %d\n", (ptr + i)->id);
-        printf("Name: %s\n", (ptr + i)->name);
-        printf("Marks: %.2f\n", (ptr + i)->marks);
-    }
-
-    // Reallocating memory
-    int new_n;
-
-    printf("\nEnter new number of students: ");
-    scanf("%d", &new_n);
-
-    if (new_n > 0) {
-
-        struct Student *temp = realloc(ptr, new_n * sizeof(struct Student));
-
-        if (temp == NULL) {
-            printf("Reallocation failed!\n");
-            free(ptr);
-            return 1;
-        }
-
-        ptr = temp;
-
-        // Input additional students
-        for (int i = n; i < new_n; i++) {
-
-            printf("\nEnter details of student %d\n", i + 1);
-
-            printf("Enter ID: ");
-            scanf("%d", &ptr[i].id);
-
-            printf("Enter Name: ");
-            scanf("%49s", ptr[i].name);
-
-            printf("Enter Marks: ");
-            scanf("%f", &ptr[i].marks);
-        }
-
-        n = new_n;
+        printf("\nID: %d", ptr[i].id);
+        printf("\nName: %s", ptr[i].name);
+        printf("\nMarks: %.2f\n", ptr[i].marks);
     }
 
     // Free dynamically allocated memory
     free(ptr);
     ptr = NULL;
 
-    printf("\nMemory successfully freed!\n");
+    printf("\nMemory freed successfully!\n");
 
     return 0;
 }

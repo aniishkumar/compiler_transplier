@@ -1384,18 +1384,25 @@ class Generator:
 let _inputBuf = '';
 function prompt() {
     while (true) {
-        const match = _inputBuf.match(/\\S+/);
-        if (match) {
-            const start = _inputBuf.indexOf(match[0]);
-            const token = match[0];
-            _inputBuf = _inputBuf.slice(start + token.length);
+        let _start = 0;
+        while (_start < _inputBuf.length && _inputBuf.charCodeAt(_start) <= 32) {
+            _start = _start + 1;
+        }
+        if (_start < _inputBuf.length) {
+            let _end = _start;
+            while (_end < _inputBuf.length && _inputBuf.charCodeAt(_end) > 32) {
+                _end = _end + 1;
+            }
+            let token = _inputBuf.slice(_start, _end);
+            _inputBuf = _inputBuf.slice(_end);
             return token;
         }
-        const buf = Buffer.alloc(1024);
-        let n = 0;
-        try { n = fs.readSync(0, buf, 0, 1024, null); } catch (e) { break; }
-        if (n === 0) break;
-        _inputBuf += buf.toString('utf-8', 0, n);
+        let buf = Buffer.alloc(1024);
+        let n = fs.readSync(0, buf, 0, 1024);
+        if (n == 0) {
+            return '';
+        }
+        _inputBuf = _inputBuf + buf.toString('utf-8', 0, n);
     }
     return '';
 }'''

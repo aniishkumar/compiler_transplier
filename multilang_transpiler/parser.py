@@ -318,6 +318,8 @@ class Parser:
                     m_params = []
                     while self.t.value != ')':
                         m_params.append(self.take().value)
+                        if self.accept('='):
+                            self.expr()
                         if not self.accept(','):
                             break
                     self.take(')')
@@ -374,6 +376,8 @@ class Parser:
                 p_name = self.take().value
                 params.append(p_name)
                 param_types.append(p_type)
+                if self.accept('='):
+                    self.expr()
                 if not self.accept(','):
                     break
             self.take(')')
@@ -424,7 +428,8 @@ class Parser:
                     return self._array_decl(name, t.line, declared_type)
                 exprs = []
                 if self.accept('='):
-                    if self.accept('{'):
+                    clean_st = declared_type.rstrip('*').replace('struct ', '').strip()
+                    if self.lang == 'c' and clean_st in self.struct_names and self.accept('{'):
                         args = []
                         if self.t.value != '}':
                             while True:
