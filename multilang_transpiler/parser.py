@@ -422,7 +422,12 @@ class Parser:
                     self.take()
                     break
                 p_type = None
-                if self.t.kind in ('IDENT', 'KEYWORD') and (self.t.value in ('int', 'float', 'double', 'string', 'char', 'bool', 'void') or self.t.value in self.struct_names):
+                if self.accept('struct'):
+                    s_name = self.take().value
+                    p_type = f"struct {s_name}"
+                    while self.accept('*'):
+                        p_type += '*'
+                elif self.t.kind in ('IDENT', 'KEYWORD') and (self.t.value in ('int', 'float', 'double', 'string', 'char', 'bool', 'void') or self.t.value in self.struct_names):
                     p_type = self.take().value
                     while self.accept('*'):
                         p_type += '*'
